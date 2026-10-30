@@ -75,14 +75,14 @@ sgl emit vs_cubes.sgl --entry main --target hlsl-dx12   # and hlsl-vulkan, wgsl,
 | `mtxFromCols(a, b, c)` | `mat3(a, b, c)`, which takes `float3` columns |
 | `mat4x3`, `m[i]` | no spelling yet: a stand-in, marked `// gap:` |
 | `vec3_splat(x)`, `vec4_splat(x)` | `float3(x)`, `float4(x)` |
-| `max(v, 0.0)`, `clamp(v, 0.0, 1.0)` on a vector | `max(v, float3(0.0))`: no builtin broadcasts a scalar bound |
+| `max(v, 0.0)`, `clamp(v, 0.0, 1.0)` on a vector | the same: `min`, `max` and `clamp` take a scalar bound |
 | `cross`, `reflect`, `refract` | take `vec3`, so a `float3` converts with `vec3(..x)` |
 | `.rgb`, `.r` | `.xyz`, `.x`: swizzles are `xyzw` alone |
 | `float(b)` of a `bool` | `select(b, 1.0, 0.0)` |
-| `c ? a : b` | `if c => a else b`, parenthesized where it is a value: `return (if c => a else b)` |
+| `c ? a : b` | `if c => a else b`, also after a jump: `return if c => a else b` |
 | `discard` | `if c => discard` |
 | `out` parameters | a returned struct |
-| `M_PI` | `const pi = 3.1415926535897932384626433832795`, bgfx's value |
+| `M_PI` | the prelude's `pi`, or the shader's own `const pi`, which hides it |
 | `floatBitsToUint(x)` | `x.bits` |
 | `#define W (A + B)` over constants | `const w = a + b`; a gap today, since a const must be a literal |
 
