@@ -97,7 +97,8 @@ A function names the bindings it reads in `{…}` after its parameters, and so d
 - **`as` is looser than a range.** `0 ..< n as int` is `(0 ..< n) as int`; write `0 ..< (n as int)`.
 - **Operator spacing is syntax.** `a - b` is a subtraction, `-b` a negation, `a -b` an error.
 - **`not` takes a parenthesized operand inside a chain.** `a and not b` is `misplaced-not`; write `a and (not b)`.
-- **A multi-line call closes on its own line.** One element per line, and the `)` or `]` at the parent's indent; a bracket does not continue across plain lines.
+- **A multi-line call closes on its own line.** One element per line, and the `)` or `]` at the parent's indent.
+- **A long expression breaks before an operator.** A more indented line continues the statement, and inside parentheses a line starting with a spaced infix operator continues the element above; never keep a 200-character line.
 - **A parameter named like a builtin hides it.** A parameter `pow` makes every later `pow(…)` in that function a call of the parameter.
 - **An implicit-derivative `sample` must stay in uniform control flow.** After a data-dependent `return`, or inside a loop that breaks on a texel, it is `non-uniform-control-flow`.
   That is a rule of the spec, not a gap: take the gradients before the branch and pass them, or sample at `level = 0.0` where the original reads one texel.
