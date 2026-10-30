@@ -1,0 +1,20 @@
+// Translated to SGL from bgfx examples/17-drawstress/fs_drawstress_tex.sc.
+// Copyright 2011-2026 Branimir Karadzic. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding material:
+    tex_color: texture_2d[float4]
+    sampler s_tex:
+        filter = .linear
+
+struct varyings:
+    @position position: hpos4
+    color0: float4
+    texcoord0: float2
+
+@pixel struct target:
+    color: float4
+
+@pixel fun main(p: varyings){material} -> target:
+    return {
+        color = material.tex_color.sample(p.texcoord0, material.s_tex) * p.color0
+    }

@@ -1,0 +1,27 @@
+// Translated to SGL from bgfx examples/23-vectordisplay/fs_vectordisplay_blit.sc.
+// The original carries no copyright line; bgfx: Copyright 2010-2026 Branimir Karadzic. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding material:
+    tex_color: texture_2d[float4]
+    sampler s_tex:
+        filter = .linear
+
+// bgfx's u_params, one member per define
+binding params:
+    blur_scale: float2
+    compose_mult: float
+    compose_alpha: float
+
+struct varyings:
+    @position position: hpos4
+    texcoord0: float2
+    color0: float4
+
+@pixel struct target:
+    color: float4
+
+@pixel fun main(p: varyings){material, params} -> target:
+    let mult = params.compose_mult
+    return {
+        color = material.tex_color.sample(p.texcoord0, material.s_tex) * float4(mult, mult, mult, mult * params.compose_alpha)
+    }

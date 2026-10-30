@@ -1,0 +1,16 @@
+// Translated to SGL from bgfx examples/52-layered/fs_layered.sc.
+// Copyright 2011-2026 Branimir Karadzic. BSD-2-Clause: sources/bgfx/LICENSE.
+
+struct varyings:
+    @position position: hpos4
+    color0: float4
+    eye: float
+
+@pixel struct target:
+    color: float4
+
+@pixel fun main(p: varyings) -> target:
+    let tint = mix(float3(1.0, 0.15, 0.15), float3(0.15, 0.4, 1.0), p.eye)
+    return {
+        color = float4(..(p.color0.xyz * tint), 1.0)
+    }

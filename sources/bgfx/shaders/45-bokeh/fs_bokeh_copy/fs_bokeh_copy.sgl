@@ -1,0 +1,21 @@
+// Translated to SGL from bgfx examples/45-bokeh/fs_bokeh_copy.sc.
+// Copyright 2021 elven cache. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding material:
+    color: texture_2d[float4]
+    sampler s_tex:
+        filter = .linear
+
+struct varyings:
+    @position position: hpos4
+    texcoord0: float2
+
+@pixel struct target:
+    color: float4
+
+@pixel fun main(p: varyings){material} -> target:
+    let tex_coord = p.texcoord0
+    let color = material.color.sample(tex_coord, material.s_tex)
+    return {
+        color = color
+    }

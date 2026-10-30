@@ -1,0 +1,31 @@
+// Translated to SGL from bgfx examples/31-rsm/vs_rsm_shadow.sc.
+// Copyright 2016 Joseph Cherlin. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding view:
+    model_view: mat4
+    model_view_proj: mat4
+
+binding params:
+    tint: float4
+
+@vertex struct vertex_input:
+    position: pos3
+    normal: float3
+
+// RSM shadow
+struct varyings:
+    @position position: hpos4
+    normal: float3
+
+@vertex fun main(v: vertex_input){view} -> varyings:
+    // Calculate normal.  Note that compressed normal is stored in the vertices
+    // Normal is stored in [0,1], remap to [-1,1].
+    let normal_object_space = v.normal * 2.0 + -1.0
+
+    // Transform normal into view space.
+    let normal = (view.model_view * float4(..normal_object_space, 0.0)).xyz
+    return {
+        position = view.model_view_proj * v.position
+        // Normalize to remove (uniform...) scaling
+        normal = normalize(normal)
+    }

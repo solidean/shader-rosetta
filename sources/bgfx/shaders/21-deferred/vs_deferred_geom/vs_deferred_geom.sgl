@@ -1,0 +1,49 @@
+// Translated to SGL from bgfx examples/21-deferred/vs_deferred_geom.sc.
+// Copyright 2011-2026 Branimir Karadzic. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding view:
+    view: mat4
+    view_proj: mat4
+    model: mat4
+
+@vertex struct vertex_input:
+    position: float3
+    normal: float4
+    tangent: float4
+    texcoord0: float2
+
+// in the order of varying.def.sc
+struct varyings:
+    @position position: hpos4
+    texcoord0: float2
+    wpos: float3
+    view: float3
+    normal: vec3
+    tangent: vec3
+    bitangent: vec3
+
+@vertex fun main(v: vertex_input){view} -> varyings:
+    let wpos = (view.model * float4(..v.position, 1.0)).xyz
+
+    let normal = v.normal * 2.0 - 1.0
+    let wnormal = view.model * vec3(..normal.xyz)
+
+    let tangent = v.tangent * 2.0 - 1.0
+    let wtangent = view.model * vec3(..tangent.xyz)
+
+    let view_normal = normalize(view.view * wnormal)
+    let view_tangent = normalize(view.view * wtangent)
+    let view_bitangent = cross(view_normal, view_tangent) * tangent.w
+    let tbn = mat3(view_tangent, view_bitangent, view_normal)
+
+    let view_dir = (view.view * float4(..wpos, 0.0)).xyz
+    return {
+        position = view.view_proj * pos3(..wpos)
+        texcoord0 = v.texcoord0
+        wpos = wpos
+        // bgfx's mul(v, m) is the row vector times the matrix
+        view = transpose(tbn) * view_dir
+        normal = view_normal
+        tangent = view_tangent
+        bitangent = view_bitangent
+    }

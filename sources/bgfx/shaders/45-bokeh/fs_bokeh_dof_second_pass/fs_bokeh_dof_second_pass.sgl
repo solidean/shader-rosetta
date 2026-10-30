@@ -1,0 +1,139 @@
+// Translated to SGL from bgfx examples/45-bokeh/fs_bokeh_dof_second_pass.sc, with parameters.sh and bokeh_dof.sh.
+// Copyright 2021 elven cache. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding view:
+    view_rect: float4
+    view_texel: float4
+
+// bgfx's u_params[13], one member per define of parameters.sh
+binding params:
+    depth_unpack_consts: float2
+    frame_idx: float
+    lobe_rotation: float
+    ndc_to_view_mul: float2
+    ndc_to_view_add: float2
+    blur_steps: float
+    // u_samplePattern names this lane too
+    lobe_count: float
+    lobe_radius_min: float
+    lobe_radius_delta2x: float
+    max_blur_size: float
+    focus_point: float
+    focus_scale: float
+    radius_scale: float
+
+// the original hands s_color to DepthOfField as both its color and its depth sampler
+binding material:
+    color: texture_2d[float4]
+    sampler s_tex:
+        filter = .linear
+
+struct varyings:
+    @position position: hpos4
+    texcoord0: float2
+
+@pixel struct target:
+    color: float4
+
+// ---- bokeh_dof.sh ----
+
+const two_pi = 6.28318531
+const golden_angle = 2.39996323
+
+fun shadertoy_noise(uv: float2) -> float => fract(sin(dot(uv.xy, float2(12.9898, 78.233))) * 43758.5453123)
+
+fun get_circle_of_confusion(depth: float, focus_point: float, focus_scale: float) -> float:
+    // if depth is less than focusPoint, result will be negative. want to keep this
+    // relationship so comparison of (signed) blur size is same as comparing depth.
+    return clamp((1.0 / focus_point - 1.0 / depth) * focus_scale, -1.0, 1.0)
+
+fun get_blur_size(depth: float, focus_point: float, focus_scale: float){params} -> float:
+    let circle_of_confusion = get_circle_of_confusion(depth, focus_point, focus_scale)
+    return circle_of_confusion * params.max_blur_size
+
+struct color_and_blur_size:
+    color: float3
+    blur_size: float
+
+// bokeh_dof.sh under USE_PACKED_COLOR_AND_BLUR: the color texture carries the blur size in w
+fun get_color_and_blur_size(tex_coord: float2, focus_point: float, focus_scale: float){material} -> color_and_blur_size:
+    let color_and_blur_size = material.color.sample(tex_coord, material.s_tex, level = 0.0)
+    let color = color_and_blur_size.xyz
+    let blur_size = color_and_blur_size.w
+
+    return {
+        color = color
+        blur_size = blur_size
+    }
+
+fun bokeh_shape_from_angle(lobe_count: float, radius_min: float, radius_delta2x: float, rotation: float, angle: float) -> float:
+    // don't shape for 0, 1 blades...
+    if lobe_count <= 1.0:
+        return 1.0
+
+    // divide edge into some number of lobes
+    let inv_period = lobe_count / (2.0 * 3.1415926)
+    let mut period_fraction = fract(angle * inv_period + rotation)
+
+    // apply triangle shape to each lobe to approximate blades of a camera aperture
+    period_fraction = abs(period_fraction - 0.5)
+    return period_fraction * radius_delta2x + radius_min
+
+fun depth_of_field(tex_coord: float2, focus_point: float, focus_scale: float){view, params, material} -> float4:
+    let center = get_color_and_blur_size(tex_coord, focus_point, focus_scale)
+    let mut color = center.color
+    let center_size = center.blur_size
+    let abs_center_size = abs(center_size)
+
+    // as sample count gets lower, visible banding. disrupt with noise.
+    // use a better random/noise/dither function than this..
+    let pixel_coord = tex_coord.xy * view.view_rect.zw
+    let random = shadertoy_noise(pixel_coord + float2(314.0, 159.0) * params.frame_idx)
+    let mut theta = random * two_pi
+    let theta_step = golden_angle
+
+    let mut total = 1.0
+    let mut total_sample_size = 0.0
+    let mut loop_value = params.radius_scale
+    let loop_end = params.max_blur_size
+
+    while loop_value < loop_end:
+        let radius = loop_value
+        let shape_scale = bokeh_shape_from_angle(
+            params.lobe_count
+            params.lobe_radius_min
+            params.lobe_radius_delta2x
+            params.lobe_rotation
+            theta
+        )
+        let spiral_coord = tex_coord + float2(cos(theta), sin(theta)) * view.view_texel.xy * (radius * shape_scale)
+
+        let spiral = get_color_and_blur_size(spiral_coord, focus_point, focus_scale)
+        let sample_size = spiral.blur_size
+        let mut abs_sample_size = abs(sample_size)
+
+        // using signed sample size as proxy for depth comparison
+        if sample_size > center_size:
+            abs_sample_size = clamp(abs_sample_size, 0.0, abs_center_size * 2.0)
+        let m = smoothstep(radius - 0.5, radius + 0.5, abs_sample_size)
+        color += mix(color / total, spiral.color, m)
+        total_sample_size += abs_sample_size
+        total += 1.0
+        theta += theta_step
+
+        loop_value += params.radius_scale / loop_value
+
+    color *= 1.0 / total
+    let average_sample_size = total_sample_size / (total - 1.0)
+    return float4(..color, average_sample_size)
+
+@pixel fun main(p: varyings){view, params, material} -> target:
+    let tex_coord = p.texcoord0.xy
+
+    let out_color = depth_of_field(tex_coord, params.focus_point, params.focus_scale)
+
+    // this pass isn't writing final output, leave in linear space for combining with scene color
+
+    return {
+        color = out_color
+    }

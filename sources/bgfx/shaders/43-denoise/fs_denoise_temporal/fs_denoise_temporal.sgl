@@ -1,0 +1,194 @@
+// Translated to SGL from bgfx examples/43-denoise/fs_denoise_temporal.sc, parameters.sh, normal_encoding.sh and shared_functions.sh.
+// Copyright 2021 elven cache. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding view:
+    view_rect: float4
+    view_texel: float4
+
+// bgfx's u_params[13], one member per define of parameters.sh
+binding params:
+    jitter_curr: float2
+    jitter_prev: float2
+    feedback_min: float
+    feedback_max: float
+    unused1: float2
+    unused2: float
+    apply_mitchell_filter: float
+    unused2zw: float2
+    world_to_view_prev0: float4
+    world_to_view_prev1: float4
+    world_to_view_prev2: float4
+    world_to_view_prev3: float4
+    view_to_proj_prev0: float4
+    view_to_proj_prev1: float4
+    view_to_proj_prev2: float4
+    view_to_proj_prev3: float4
+    frame_idx: float
+    // 0=none, 1=dither, 2=random
+    noise_type: float
+    unused11: float2
+    tex_coord_step: float
+    sigma_depth: float
+    sigma_normal: float
+
+binding input:
+    color: texture_2d[float4]
+    normal: texture_2d[float4]
+    velocity: texture_2d[float4]
+    // previous color
+    previous_color: texture_2d[float4]
+    // previous normal
+    previous_normal: texture_2d[float4]
+    sampler s_tex:
+        filter = .linear
+
+struct varyings:
+    @position position: hpos4
+    texcoord0: float2
+
+@pixel struct target:
+    color: float4
+
+// normal_encoding.sh
+const ne_use_octahedral_representation = false
+
+// From "A Survey of Efficient Representations for Independent Unit Vectors"
+// http://jcgt.org/published/0003/02/01/paper.pdf
+
+// Convert an oct24 (2x12bit normal) to an rgb8 value for storing in texture
+fun snorm12x2_to_unorm8x3(f: float2) -> float3:
+    let f = clamp(f, -1.0, 1.0)
+    let u = floor(f * 2047.0 + 2047.5)
+    let t = floor(u.y / 256.0)
+
+    // "This code assumes that rounding will occur during storage."
+    // -- Not certain but this appears to mainly apply to the x channel.
+    //    From paper: x = u.x / 16.0 - 0.5
+    //    Instead round by +0.5 and floor.
+    return float3(floor(u.x / 16.0), fract(u.x / 16.0) * 256.0 + t, u.y - t * 256.0) / 255.0
+
+// Unpack oct24 (2x12bit normal) from an rgb8 value stored in texture (normal spec)
+fun unorm8x3_to_snorm12x2(u: float3) -> float2:
+    let mut u = u * 255.0
+    u.y *= 1.0 / 16.0
+    let mut s = float2(u.x * 16.0 + floor(u.y), fract(u.y) * (16.0 * 256.0) + u.z)
+
+    s = s * (1.0 / 2047.0) - 1.0
+    return min(max(s, -1.0), 1.0)
+
+// Built in sign test could return 0, don't want that
+fun sign_not_zero(v: float2) => float2(if v.x >= 0.0 => 1.0 else -1.0, if v.y >= 0.0 => 1.0 else -1.0)
+
+// Assume normalized input. Output is (-1, 1) for each component
+fun float32x3_to_oct(v: float3) -> float2:
+    // Project the sphere onto the octahedron, and then onto the xy plane
+    let p = v.xy * (1.0 / (abs(v.x) + abs(v.y) + abs(v.z)))
+
+    // Reflect the folds of the lower hemisphere over the diagonals
+    return if v.z <= 0.0 => (1.0 - abs(p.yx)) * sign_not_zero(p) else p
+
+// Get a float3 normal from an oct representation
+fun oct_to_float32x3(e: float2) -> float3:
+    let mut v = float3(..e.xy, 1.0 - abs(e.x) - abs(e.y))
+    if v.z < 0.0:
+        v.xy = (1.0 - abs(v.yx)) * sign_not_zero(v.xy)
+
+    return normalize(v)
+
+fun signed_normal_encode_to_oct(normal: float3) => snorm12x2_to_unorm8x3(float32x3_to_oct(normal))
+
+fun signed_normal_decode_from_oct(normal: float3) => oct_to_float32x3(unorm8x3_to_snorm12x2(normal))
+
+fun normal_encode(normal: float3) -> float3:
+    if ne_use_octahedral_representation:
+        return signed_normal_encode_to_oct(normal)
+    else:
+        return normal * 0.5 + 0.5
+
+fun normal_decode(normal: float3) -> float3:
+    if ne_use_octahedral_representation:
+        return signed_normal_decode_from_oct(normal)
+    else:
+        return normal * 2.0 - 1.0
+
+// shared_functions.sh
+fun get_tex_coord_previous_no_jitter(tex_coord: float2, velocity: float2) -> float2:
+    let tex_coord_prev = tex_coord - velocity
+    return tex_coord_prev
+
+fun get_tex_coord_previous(tex_coord: float2, velocity: float2){view, params} -> float2:
+    let mut tex_coord_prev = tex_coord - velocity
+
+    let jitter_delta = params.jitter_curr - params.jitter_prev
+    tex_coord_prev += jitter_delta * view.view_texel.xy
+
+    return tex_coord_prev
+
+const cos_pi_over_4 = 0.70710678118
+
+@pixel fun main(p: varyings){view, input} -> target:
+    let tex_coord = p.texcoord0
+
+    // read center pixel
+    let mut color = input.color.sample(tex_coord, input.s_tex)
+    let normal = normal_decode(input.normal.sample(tex_coord, input.s_tex).xyz)
+
+    // offset to last pixel
+    let velocity = input.velocity.sample(tex_coord, input.s_tex).xy
+    let tex_coord_prev = get_tex_coord_previous_no_jitter(tex_coord, velocity)
+
+    // SVGF approach suggests sampling and test/rejecting 4 contributing
+    // samples individually and then doing custom bilinear filter of result
+
+    // multiply texCoordPrev by dimensions to get nearest pixels, produces (X.5, Y.5) coordinate
+    // under no motion, so subtract half here to get correct weights for bilinear filter.
+    // not thrilled by this, feels like something is wrong.
+    let screen_pixel_prev = tex_coord_prev * view.view_rect.zw - float2(0.5)
+    let screen_pixel_min = floor(screen_pixel_prev)
+    let screen_pixel_mix = fract(screen_pixel_prev)
+
+    let x0 = 1.0 - screen_pixel_mix.x
+    let x1 = screen_pixel_mix.x
+    let y0 = 1.0 - screen_pixel_mix.y
+    let y1 = screen_pixel_mix.y
+
+    let coord_weights = [x0 * y0, x1 * y0, x0 * y1, x1 * y1]
+
+    // adding a half texel here to correct the modification above, in addition to pixel offset
+    // to grab adjacent pixels for bilinear filter. not thrilled by this, feels like something is wrong.
+    let coords = [
+        (screen_pixel_min + float2(0.5, 0.5)) * view.view_texel.xy
+        (screen_pixel_min + float2(1.5, 0.5)) * view.view_texel.xy
+        (screen_pixel_min + float2(0.5, 1.5)) * view.view_texel.xy
+        (screen_pixel_min + float2(1.5, 1.5)) * view.view_texel.xy
+    ]
+
+    // SVGF paper mentions comparing depths and normals to establish
+    // whether samples are similar enough to contribute, but does not
+    // describe how. References the following paper, which uses threshold
+    // of cos(PI/4) to accept/reject.
+    // https://software.intel.com/content/www/us/en/develop/articles/streaming-g-buffer-compression-for-multi-sample-anti-aliasing.html
+    // this paper also discusses using depth derivatives to estimate overlapping depth range
+
+    let mut accumulated_color = float4(0.0)
+    let mut accumulated_weight = 0.0
+    for i in 0 ..< 4:
+        let sample_normal = normal_decode(input.previous_normal.sample(coords[i], input.s_tex).xyz)
+        let normal_similarity = dot(normal, sample_normal)
+        let mut weight = if normal_similarity < cos_pi_over_4 => 0.0 else 1.0
+
+        let sample_color = input.previous_color.sample(coords[i], input.s_tex)
+
+        weight *= coord_weights[i]
+        accumulated_color += sample_color * weight
+        accumulated_weight += weight
+
+    if 0.0 < accumulated_weight:
+        accumulated_color *= 1.0 / accumulated_weight
+        color = mix(color, accumulated_color, 0.8)
+    // else: debug colorize
+    //     color.xyz *= vec3(0.5, 0.01, 0.65);
+
+    return {
+        color = color
+    }

@@ -1,0 +1,108 @@
+// Translated to SGL from bgfx examples/39-assao/cs_assao_smart_blur.sc.
+// Copyright 2018 Attila Kocsis. BSD-2-Clause: sources/bgfx/LICENSE.
+
+// the ssao format of uniforms.sh, rg8, is outside the portable image formats
+require extended_image_formats
+
+// bgfx's u_params[19], one member per define of uniforms.sh, and u_rect
+binding params:
+    viewport_pixel_size: float2
+    half_viewport_pixel_size: float2
+    depth_unpack_consts: float2
+    unused1: float2
+    ndc_to_view_mul: float2
+    ndc_to_view_add: float2
+    per_pass_full_res_coord_offset: float2
+    per_pass_full_res_uv_offset: float2
+    viewport_2x_pixel_size: float2
+    viewport_2x_pixel_size_x_025: float2
+    effect_radius: float
+    effect_shadow_strength: float
+    effect_shadow_pow: float
+    effect_shadow_clamp: float
+    effect_fade_out_mul: float
+    effect_fade_out_add: float
+    effect_horizon_angle_threshold: float
+    effect_sampling_radius_near_limit_rec: float
+    depth_precision_offset_mod: float
+    neg_rec_effect_radius: float
+    load_counter_avg_div: float
+    adaptive_sample_count_limit: float
+    inv_sharpness: float
+    pass_index: float
+    quarter_res_pixel_size: float2
+    pattern_rot_scale_matrices: float4[5]
+    normals_unpack_mul: float
+    normals_unpack_add: float
+    detail_ao_strength: float
+    layer: float
+    normals_world_to_viewspace_matrix0: float4
+    normals_world_to_viewspace_matrix1: float4
+    normals_world_to_viewspace_matrix2: float4
+    normals_world_to_viewspace_matrix3: float4
+    rect: float4
+
+binding ssao:
+    target: out image_2d_array[.rg8_unorm]
+    blur_input: texture_2d_array[float4]
+    sampler s_blur_input:
+        filter = .linear
+
+// unpacking for edges; 2 bits per edge mean 4 gradient values (0, 0.33, 0.66, 1) for smoother transitions!
+fun unpack_edges(packed_val_in: float){params} -> float4:
+    let packed_val = (packed_val_in * 255.5) as uint
+    // there's really no need for mask (as it's an 8 bit input) but I'll leave it in so it doesn't cause any trouble in the future
+    let edges_lrtb = float4(
+        (((packed_val >> 6u) & 0x03u) as float) / 3.0
+        (((packed_val >> 4u) & 0x03u) as float) / 3.0
+        (((packed_val >> 2u) & 0x03u) as float) / 3.0
+        (((packed_val >> 0u) & 0x03u) as float) / 3.0
+    )
+
+    return saturate(edges_lrtb + params.inv_sharpness)
+
+// ********************************************************************************************************
+// Pixel shader that does smart blurring (to avoid bleeding)
+
+fun add_sample(ssao_value: float, edge_value: float, sum: mut float, sum_weight: mut float):
+    let weight = edge_value
+
+    sum += weight * ssao_value
+    sum_weight += weight
+
+fun sample_blurred(in_pos: int2, coord: float2){params, ssao} -> float2:
+    let packed_edges = ssao.blur_input.load(in_pos.xy, 0, layer = 0).y
+    let edges_lrtb = unpack_edges(packed_edges)
+
+    let values_ul = ssao.blur_input.gather(coord - params.half_viewport_pixel_size * 0.5, ssao.s_blur_input, layer = 0)
+    let values_br = ssao.blur_input.gather(coord + params.half_viewport_pixel_size * 0.5, ssao.s_blur_input, layer = 0)
+
+    let mut ssao_value = values_ul.y
+    let ssao_value_l = values_ul.x
+    let ssao_value_t = values_ul.z
+    let ssao_value_r = values_br.z
+    let ssao_value_b = values_br.x
+
+    let mut sum_weight = 0.5
+    let mut sum = ssao_value * sum_weight
+
+    add_sample(ssao_value_l, edges_lrtb.x, mut sum, mut sum_weight)
+    add_sample(ssao_value_r, edges_lrtb.y, mut sum, mut sum_weight)
+
+    add_sample(ssao_value_t, edges_lrtb.z, mut sum, mut sum_weight)
+    add_sample(ssao_value_b, edges_lrtb.w, mut sum, mut sum_weight)
+
+    let ssao_avg = sum / sum_weight
+
+    // min( ssaoValue, ssaoAvg ) * 0.2 + ssaoAvg * 0.8;
+    ssao_value = ssao_avg
+
+    return float2(ssao_value, packed_edges)
+
+// edge-sensitive blur
+@compute(8, 8, 1) fun main(@thread_id id: int3){params, ssao}:
+    let dt_id = (id.xy as uint2) + (params.rect.xy as uint2)
+    if all(dt_id < (params.rect.zw as uint2)):
+        let in_uv = ((dt_id as float2) + float2(0.5, 0.5)) * params.half_viewport_pixel_size
+        let value = sample_blurred(dt_id as int2, in_uv)
+        ssao.target[dt_id as int2, layer = params.layer as int] = value

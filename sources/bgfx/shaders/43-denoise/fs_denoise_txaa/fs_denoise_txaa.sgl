@@ -1,0 +1,251 @@
+// Translated to SGL from bgfx examples/43-denoise/fs_denoise_txaa.sc, parameters.sh and shared_functions.sh.
+// Copyright 2021 elven cache. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding view:
+    view_texel: float4
+
+// bgfx's u_params[13], one member per define of parameters.sh
+binding params:
+    jitter_curr: float2
+    jitter_prev: float2
+    feedback_min: float
+    feedback_max: float
+    unused1: float2
+    unused2: float
+    apply_mitchell_filter: float
+    unused2zw: float2
+    world_to_view_prev0: float4
+    world_to_view_prev1: float4
+    world_to_view_prev2: float4
+    world_to_view_prev3: float4
+    view_to_proj_prev0: float4
+    view_to_proj_prev1: float4
+    view_to_proj_prev2: float4
+    view_to_proj_prev3: float4
+    frame_idx: float
+    // 0=none, 1=dither, 2=random
+    noise_type: float
+    unused11: float2
+    tex_coord_step: float
+    sigma_depth: float
+    sigma_normal: float
+
+binding input:
+    // this frame's shaded color
+    color: texture_2d[float4]
+    // previous frame's shaded color
+    previous_color: texture_2d[float4]
+    // screenspace delta from previous to current frame
+    velocity: texture_2d[float4]
+    // depth buffer
+    depth: texture_2d[float4]
+    sampler s_tex:
+        filter = .linear
+
+struct varyings:
+    @position position: hpos4
+    texcoord0: float2
+
+@pixel struct target:
+    color: float4
+
+// shaderlib.sh
+fun to_linear(rgb: float3) => pow(abs(rgb), float3(2.2))
+
+fun to_gamma(rgb: float3) => pow(abs(rgb), float3(1.0 / 2.2))
+
+// shared_functions.sh
+fun get_tex_coord_previous_no_jitter(tex_coord: float2, velocity: float2) -> float2:
+    let tex_coord_prev = tex_coord - velocity
+    return tex_coord_prev
+
+fun get_tex_coord_previous(tex_coord: float2, velocity: float2){view, params} -> float2:
+    let mut tex_coord_prev = tex_coord - velocity
+
+    let jitter_delta = params.jitter_curr - params.jitter_prev
+    tex_coord_prev += jitter_delta * view.view_texel.xy
+
+    return tex_coord_prev
+
+const apply_txaa_in_linear = false
+
+fun find_nearest_depth(depth_tex: texture_2d[float4], smp: sampler, tex_coord: float2){view} -> float3:
+    let du = float2(view.view_texel.x, 0.0)
+    let dv = float2(0.0, view.view_texel.y)
+
+    let mut coord = tex_coord - du - dv
+    let tcd0 = float3(..coord, depth_tex.sample(coord, smp).x)
+    coord = tex_coord - dv
+    let tcd1 = float3(..coord, depth_tex.sample(coord, smp).x)
+    coord = tex_coord + du - dv
+    let tcd2 = float3(..coord, depth_tex.sample(coord, smp).x)
+    coord = tex_coord + du
+    let tcd3 = float3(..coord, depth_tex.sample(coord, smp).x)
+    coord = tex_coord
+    let tcd4 = float3(..coord, depth_tex.sample(coord, smp).x)
+    coord = tex_coord - du
+    let tcd5 = float3(..coord, depth_tex.sample(coord, smp).x)
+    coord = tex_coord - du + dv
+    let tcd6 = float3(..coord, depth_tex.sample(coord, smp).x)
+    coord = tex_coord + dv
+    let tcd7 = float3(..coord, depth_tex.sample(coord, smp).x)
+    coord = tex_coord + du + dv
+    let tcd8 = float3(..coord, depth_tex.sample(coord, smp).x)
+
+    let mut min_tcd = tcd0
+    if tcd1.z < min_tcd.z => min_tcd = tcd1
+    if tcd2.z < min_tcd.z => min_tcd = tcd2
+    if tcd3.z < min_tcd.z => min_tcd = tcd3
+    if tcd4.z < min_tcd.z => min_tcd = tcd4
+    if tcd5.z < min_tcd.z => min_tcd = tcd5
+    if tcd6.z < min_tcd.z => min_tcd = tcd6
+    if tcd7.z < min_tcd.z => min_tcd = tcd7
+    if tcd8.z < min_tcd.z => min_tcd = tcd8
+
+    return min_tcd
+
+fun mitchell(b: float, c: float, x: float) -> float:
+    let mut v = 0.0
+    let x = abs(x)
+    let x2 = x * x
+    let x3 = x2 * x
+
+    if x < 1.0:
+        v = (12.0 - 9.0 * b - 6.0 * c) * x3 + (-18.0 + 12.0 * b + 6.0 * c) * x2 + (6.0 - 2.0 * b)
+    else if x < 2.0:
+        v = (-b - 6.0 * c) * x3 + (6.0 * b + 30.0 * c) * x2 + (-12.0 * b - 48.0 * c) * x + (8.0 * b + 24.0 * c)
+
+    return v * (1.0 / 6.0)
+
+@pixel fun main(p: varyings){view, params, input} -> target:
+    let tex_coord = p.texcoord0
+    let mut color_curr = input.color.sample(tex_coord, input.s_tex).xyz
+
+    // the original wraps everything up to the output in `if (texCoord.x > 0.5)` under DEBUG_HALF_SCREEN, which is off
+
+    let nearest_coord_and_depth = find_nearest_depth(input.depth, input.s_tex, tex_coord)
+
+    let velocity = input.velocity.sample(nearest_coord_and_depth.xy, input.s_tex).xy
+    let tex_coord_prev = get_tex_coord_previous(tex_coord, velocity)
+
+    let mut color_prev = input.previous_color.sample(tex_coord_prev, input.s_tex).xyz
+
+    // Sample local neighborhood for variance clipping
+    let du = float2(view.view_texel.x, 0.0)
+    let dv = float2(0.0, view.view_texel.y)
+
+    let mut color_ul = input.color.sample(tex_coord - du - dv, input.s_tex).xyz
+    let mut color_up = input.color.sample(tex_coord - dv, input.s_tex).xyz
+    let mut color_ur = input.color.sample(tex_coord + du - dv, input.s_tex).xyz
+    let mut color_ri = input.color.sample(tex_coord + du, input.s_tex).xyz
+    let mut color_le = input.color.sample(tex_coord - du, input.s_tex).xyz
+    let mut color_dl = input.color.sample(tex_coord - du + dv, input.s_tex).xyz
+    let mut color_do = input.color.sample(tex_coord + dv, input.s_tex).xyz
+    let mut color_dr = input.color.sample(tex_coord + du + dv, input.s_tex).xyz
+
+    // in an ideal world, lighting and such is in linear space,
+    // would possibly want to convert to gamma and apply txaa
+    // there. but this sample isn't storing intermediate results
+    // in linear space (or doing any reasonable lighting) so
+    // would possibly want to do the opposite.
+    if apply_txaa_in_linear:
+        color_curr = to_linear(color_curr)
+        color_prev = to_linear(color_prev)
+        color_ul = to_linear(color_ul)
+        color_up = to_linear(color_up)
+        color_ur = to_linear(color_ur)
+        color_le = to_linear(color_le)
+        color_ri = to_linear(color_ri)
+        color_dl = to_linear(color_dl)
+        color_do = to_linear(color_do)
+        color_dr = to_linear(color_dr)
+
+    // Compute variance box on color neighborhood, clip to box
+    // the original scopes this part in a block of its own, which SGL writes inline
+    let mut out_val = 0.0
+    let mut m1 = float3(0.0)
+    let mut m2 = float3(0.0)
+    m1 += color_ul
+    m2 += color_ul * color_ul
+    m1 += color_up
+    m2 += color_up * color_up
+    m1 += color_ur
+    m2 += color_ur * color_ur
+    m1 += color_le
+    m2 += color_le * color_le
+    m1 += color_curr
+    m2 += color_curr * color_curr
+    m1 += color_ri
+    m2 += color_ri * color_ri
+    m1 += color_dl
+    m2 += color_dl * color_dl
+    m1 += color_do
+    m2 += color_do * color_do
+    m1 += color_dr
+    m2 += color_dr * color_dr
+    m1 *= 1.0 / 9.0
+    m2 *= 1.0 / 9.0
+
+    let variance = max(float3(0.0), m2 - m1 * m1)
+    let mut sigma = sqrt(variance)
+    out_val = max(sigma.x, max(sigma.y, sigma.z))
+    sigma *= 1.4
+    let color_min = m1 - sigma
+    let color_max = m1 + sigma
+
+    let displacement = color_prev - m1
+    let units = abs(displacement / sigma)
+    let max_unit = max(max(units.x, units.y), max(units.z, 1.0))
+
+    color_prev = m1 + displacement * (1.0 / max_unit)
+
+    let luma_curr = dot(color_curr, float3(0.3, 0.6, 0.1))
+    let luma_prev = dot(color_prev, float3(0.3, 0.6, 0.1))
+
+    // adjust feedback/blend amount depending on color difference
+    let mut r = abs(luma_curr - luma_prev) / max(max(luma_curr, luma_prev), 0.2)
+    r = 1.0 - r
+    r = r * r
+    let feedback = mix(params.feedback_min, params.feedback_max, r)
+
+    let mut color_out = mix(color_curr, color_prev, feedback)
+
+    // optionally blur current color, since we've already taken
+    // the samples to build the variance window. could use more
+    // blur when feedback is lower, to replace temporal accumulation
+    // with spatial accumulation. or could use filter to sharpen.
+    if params.apply_mitchell_filter > 0.0:
+        // adjust filter coefficients depending on color difference
+        let b = mix(3.0 / 2.0, 1.0 / 3.0, r)
+        let c = mix(-1.0 / 4.0, 1.0 / 3.0, r)
+
+        let m0 = mitchell(b, c, 0.0)
+        let m1 = mitchell(b, c, 1.0)
+        let m2 = mitchell(b, c, sqrt(2.0))
+
+        let mut color_filter = m0 * color_curr
+        color_filter += m1 * color_le
+        color_filter += m1 * color_ri
+        color_filter += m1 * color_up
+        color_filter += m1 * color_do
+        color_filter += m2 * color_ul
+        color_filter += m2 * color_ur
+        color_filter += m2 * color_dl
+        color_filter += m2 * color_dr
+        color_filter *= 1.0 / (m0 + 4.0 * m1 + 4.0 * m2)
+
+        color_out = mix(color_filter, color_prev, feedback)
+
+    // in an ideal world, lighting and such is in linear space,
+    // would possibly want to convert to gamma and apply txaa
+    // there. but this sample isn't storing intermediate results
+    // in linear space (or doing any reasonable lighting) so
+    // would possibly want to do the opposite.
+    if apply_txaa_in_linear:
+        color_curr = to_gamma(color_out)
+    else:
+        color_curr = color_out
+
+    return {
+        color = float4(..color_curr, 1.0)
+    }

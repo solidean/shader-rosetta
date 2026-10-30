@@ -1,0 +1,44 @@
+// Translated to SGL from bgfx examples/45-bokeh/vs_bokeh_forward.sc.
+// Copyright 2021 elven cache. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding view:
+    model_view_proj: mat4
+    model: mat4
+    inv_view: mat4
+
+@vertex struct vertex_input:
+    position: pos3
+    normal: float3
+    texcoord0: float2
+
+struct varyings:
+    @position position: hpos4
+    normal: float3
+    texcoord0: float2
+    texcoord1: float4
+    texcoord2: float4
+
+@vertex fun main(v: vertex_input){view} -> varyings:
+    // Calculate vertex position
+    let pos = v.position
+    let position = view.model_view_proj * pos
+
+    let ws_pos = (view.model * float4(..pos, 1.0)).xyz
+
+    // Calculate normal, unpack
+    let os_normal = v.normal.xyz * 2.0 - 1.0
+
+    // Transform normal into world space
+    let ws_normal = view.model * vec3(..os_normal)
+
+    // Store world space view vector in extra texCoord attribute
+    let ws_cam_pos = (view.inv_view * float4(0.0, 0.0, 0.0, 1.0)).xyz
+    let view_dir = normalize(ws_cam_pos - ws_pos)
+
+    return {
+        position = position
+        normal = float3(..normalize(ws_normal))
+        texcoord0 = v.texcoord0
+        texcoord1 = float4(..ws_pos, 1.0)
+        texcoord2 = float4(..view_dir, 1.0)
+    }

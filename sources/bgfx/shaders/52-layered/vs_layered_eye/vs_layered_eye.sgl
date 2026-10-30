@@ -1,0 +1,29 @@
+// Translated to SGL from bgfx examples/52-layered/vs_layered_eye.sc.
+// Copyright 2011-2026 Branimir Karadzic. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding view:
+    model_view_proj: mat4
+
+binding params:
+    // x = eye separation, y = eye index
+    eye_params: float4
+
+@vertex struct vertex_input:
+    position: pos3
+    color0: float4
+
+struct varyings:
+    @position position: hpos4
+    color0: float4
+    eye: float
+
+@vertex fun main(v: vertex_input){view, params} -> varyings:
+    let eye_index = params.eye_params.y
+
+    let mut pos = view.model_view_proj * v.position
+    pos.x += (eye_index * 2.0 - 1.0) * params.eye_params.x * pos.w
+    return {
+        position = pos
+        color0 = v.color0
+        eye = eye_index
+    }

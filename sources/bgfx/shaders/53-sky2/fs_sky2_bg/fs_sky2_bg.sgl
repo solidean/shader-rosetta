@@ -1,0 +1,146 @@
+// Translated to SGL from bgfx examples/53-sky2/fs_sky2_bg.sc, with atmosphere.sh and sky2_common.sh.
+// Copyright 2026 Mateusz Kozdrowicki. BSD-2-Clause: sources/bgfx/LICENSE.
+
+// Reference: Hillaire, Sébastien. "A Scalable and Production Ready Sky and Atmosphere Rendering Technique.
+// https://sebh.github.io/publications/egsr2020.pdf
+
+// atmosphere.sh's uniforms, one member per define
+binding atmosphere:
+    // u_atmoRayleigh, xyz: rayleigh scatter (1/km), w: rayleigh scale height (km)
+    rayleigh_scatter: float3
+    rayleigh_h: float
+    // u_atmoMie, x: mie scatter, y: mie extinction (1/km), z: mie scale height (km), w: mie phase g
+    mie_scatter: float
+    mie_extinction: float
+    mie_h: float
+    mie_g: float
+    // u_atmoOzone, xyz: ozone absorption (1/km), w: multiple scattering strength
+    ozone_absorb: float3
+    ms_strength: float
+    // u_atmoPlanet, x: bottom radius, y: top radius (km), z: ozone center, w: ozone half-width (km)
+    bottom_radius: float
+    top_radius: float
+    ozone_center: float
+    ozone_half: float
+    // u_atmoGround
+    ground_albedo: float3
+
+binding material:
+    sky_view: texture_2d[float4]
+    atmo_transmittance: texture_2d[float4]
+    sampler s_tex:
+        filter = .linear
+
+binding params:
+    sky_inv_view_proj: mat4
+    // x: view radius (km), y: cos sun angular radius, z: sun disc scale
+    sky_params: float4
+    sun_direction: float4
+    sun_radiance: float4
+
+struct varyings:
+    @position position: hpos4
+    texcoord0: float2
+
+@pixel struct target:
+    color: float4
+
+// ---- atmosphere.sh ----
+
+// Reference: Hillaire, Sébastien. "A Scalable and Production Ready Sky and Atmosphere Rendering Technique.
+// https://sebh.github.io/publications/egsr2020.pdf
+
+const atmo_pi = 3.14159265359
+
+fun atmosphere_dist_to_sphere(r: float, mu: float, big_r: float) -> float:
+    let disc = r * r * (mu * mu - 1.0) + big_r * big_r
+    return max(0.0, -r * mu + sqrt(max(disc, 0.0)))
+
+fun atmosphere_hits_ground(r: float, mu: float){atmosphere} -> bool:
+    return mu < 0.0 and (r * r * (mu * mu - 1.0) + atmosphere.bottom_radius * atmosphere.bottom_radius) >= 0.0
+
+// transmittance lut parameterization Bruneton's distance based mapping.
+fun atmosphere_transmittance_uv(r: float, mu: float){atmosphere} -> float2:
+    let h = sqrt(atmosphere.top_radius * atmosphere.top_radius - atmosphere.bottom_radius * atmosphere.bottom_radius)
+    let rho = sqrt(max(r * r - atmosphere.bottom_radius * atmosphere.bottom_radius, 0.0))
+
+    let d = atmosphere_dist_to_sphere(r, mu, atmosphere.top_radius)
+    let d_min = atmosphere.top_radius - r
+    let d_max = rho + h
+
+    return float2((d - d_min) / (d_max - d_min), rho / h)
+
+// sky view ly parameterization.
+fun atmosphere_skyview_uv(r: float, view_zenith_cos: float, sun_rel_azimuth: float){atmosphere} -> float2:
+    let v_horizon = sqrt(max(r * r - atmosphere.bottom_radius * atmosphere.bottom_radius, 0.0))
+    let beta = acos(clamp(v_horizon / r, -1.0, 1.0))
+    let zenith_horizon = atmo_pi - beta
+    let view_zenith = acos(clamp(view_zenith_cos, -1.0, 1.0))
+
+    let mut v: float
+    if view_zenith < zenith_horizon:
+        let coord = view_zenith / zenith_horizon
+        v = (1.0 - sqrt(1.0 - coord)) * 0.5
+    else:
+        let coord = (view_zenith - zenith_horizon) / max(beta, 1e-4)
+        v = sqrt(saturate(coord)) * 0.5 + 0.5
+
+    let u = sun_rel_azimuth / (2.0 * atmo_pi) + 0.5
+    return float2(u, v)
+
+// ---- sky2_common.sh ----
+
+const sky2_exposure = 1.6
+
+// ACES filmic Narkowicz 2015 fit.
+fun sky2_tonemap(color: float3) -> float3:
+    let mut color = color
+    color *= sky2_exposure
+    let num = color * (2.51 * color + 0.03)
+    let den = color * (2.43 * color + 0.59) + 0.14
+    return saturate(num / den)
+
+// sun relative azimuth of dir
+fun sun_relative_azimuth(dir: float3, to_sun: float3) -> float:
+    let mut d = float2(dir.x, dir.z)
+    let mut s = float2(to_sun.x, to_sun.z)
+
+    let dl = length(d)
+    let sl = length(s)
+    if dl < 1e-5 or sl < 1e-5 => return 0.0
+
+    d /= dl
+    s /= sl
+
+    return atan2(d.x * s.y - d.y * s.x, dot(d, s))
+
+@pixel fun main(p: varyings){atmosphere, material, params} -> target:
+    // reconstruct the world space view ray
+    let nearp = params.sky_inv_view_proj * float4(..p.texcoord0.xy, 0.0, 1.0)
+    let farp = params.sky_inv_view_proj * float4(..p.texcoord0.xy, 1.0, 1.0)
+    let eye = nearp.xyz / nearp.w
+    let at = farp.xyz / farp.w
+    let dir = normalize(at - eye)
+
+    let r = params.sky_params.x
+    let to_sun = -normalize(params.sun_direction.xyz)
+
+    let uv = atmosphere_skyview_uv(r, dir.y, sun_relative_azimuth(dir, to_sun))
+    let mut radiance = material.sky_view.sample(uv, material.s_tex, level = 0.0).rgb
+
+    // Sun disc, circumsolar halo
+    let cos_view_sun = dot(dir, to_sun)
+    if not atmosphere_hits_ground(r, dir.y):
+        let transmittance = material.atmo_transmittance.sample(atmosphere_transmittance_uv(r, dir.y), material.s_tex, level = 0.0).rgb
+
+        let halo = exp2(-(1.0 - cos_view_sun) * 12000.0)
+        radiance += params.sun_radiance.rgb * transmittance * (params.sky_params.z * 0.03) * halo
+
+        if cos_view_sun >= params.sky_params.y:
+            let x2 = saturate((1.0 - cos_view_sun) / max(1.0 - params.sky_params.y, 1e-7))
+            let limb = pow(max(1.0 - x2, 0.0), 0.3)
+            radiance += params.sun_radiance.rgb * params.sky_params.z * transmittance * limb
+
+    return {
+        color = float4(..sky2_tonemap(radiance), 1.0)
+    }

@@ -1,0 +1,14 @@
+// Translated to SGL from bgfx examples/53-sky2/fs_sky2_shadow.sc.
+// Copyright 2026 Mateusz Kozdrowicki. BSD-2-Clause: sources/bgfx/LICENSE.
+
+struct varyings:
+    @position position: hpos4
+    shadowcoord: float4
+
+@pixel struct target:
+    color: float4
+
+@pixel fun main(p: varyings) -> target:
+    return {
+        color = float4(p.shadowcoord.z / p.shadowcoord.w, 0.0, 0.0, 1.0)
+    }

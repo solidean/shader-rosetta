@@ -1,0 +1,625 @@
+// Translated to SGL from bgfx examples/39-assao/cs_assao_generate_q3base.sc, with cs_assao_generate_q.sh.
+// Copyright 2018 Attila Kocsis. BSD-2-Clause: sources/bgfx/LICENSE.
+
+// the ssao format of uniforms.sh, rg8, is outside the portable image formats
+require extended_image_formats
+
+const assao_quality = 3
+const assao_adaptive_base = true
+
+// uniforms.sh
+const ssao_max_taps = 32
+const ssao_adaptive_tap_base_count = 5
+const ssao_adaptive_tap_flexible_count = ssao_max_taps - ssao_adaptive_tap_base_count
+const ssao_depth_mip_levels = 4
+const ssao_enable_normal_world_to_view_conversion = true
+
+// bgfx's u_params[19], one member per define of uniforms.sh, and u_rect
+binding params:
+    viewport_pixel_size: float2
+    half_viewport_pixel_size: float2
+    depth_unpack_consts: float2
+    unused1: float2
+    ndc_to_view_mul: float2
+    ndc_to_view_add: float2
+    per_pass_full_res_coord_offset: float2
+    per_pass_full_res_uv_offset: float2
+    viewport_2x_pixel_size: float2
+    viewport_2x_pixel_size_x_025: float2
+    effect_radius: float
+    effect_shadow_strength: float
+    effect_shadow_pow: float
+    effect_shadow_clamp: float
+    effect_fade_out_mul: float
+    effect_fade_out_add: float
+    effect_horizon_angle_threshold: float
+    effect_sampling_radius_near_limit_rec: float
+    depth_precision_offset_mod: float
+    neg_rec_effect_radius: float
+    load_counter_avg_div: float
+    adaptive_sample_count_limit: float
+    inv_sharpness: float
+    pass_index: float
+    quarter_res_pixel_size: float2
+    pattern_rot_scale_matrices: float4[5]
+    normals_unpack_mul: float
+    normals_unpack_add: float
+    detail_ao_strength: float
+    layer: float
+    normals_world_to_viewspace_matrix0: float4
+    normals_world_to_viewspace_matrix1: float4
+    normals_world_to_viewspace_matrix2: float4
+    normals_world_to_viewspace_matrix3: float4
+    rect: float4
+
+binding ssao:
+    viewspace_depth_source: texture_2d[float4]
+    viewspace_depth_source_mirror: texture_2d[float4]
+    normalmap_source: image_2d[.rgba8_unorm]
+    load_counter: buffer[uint]
+    importance_map: texture_2d[float4]
+    base_ssao: image_2d_array[.rg8_unorm]
+    target: out image_2d_array[.rg8_unorm]
+    sampler s_viewspace_depth_source:
+        filter = .linear
+    sampler s_viewspace_depth_source_mirror:
+        filter = .linear
+        address = .mirror_repeat
+    sampler s_importance_map:
+        filter = .linear
+
+// progressive poisson-like pattern; x, y are in [-1, 1] range, .z is length( vec2(x,y) ), .w is log2( z )
+const intelssao_main_disk_sample_count = 32
+const g_sample_pattern_main: float4[intelssao_main_disk_sample_count] = [
+    float4(0.78488064, 0.56661671, 1.500000, -0.126083)
+    float4(0.26022232, -0.29575172, 1.500000, -1.064030)
+    float4(0.10459357, 0.08372527, 1.110000, -2.730563)
+    float4(-0.68286800, 0.04963045, 1.090000, -0.498827)
+    float4(-0.13570161, -0.64190155, 1.250000, -0.532765)
+    float4(-0.26193795, -0.08205118, 0.670000, -1.783245)
+    float4(-0.61177456, 0.66664219, 0.710000, -0.044234)
+    float4(0.43675563, 0.25119025, 0.610000, -1.167283)
+    float4(0.07884444, 0.86618668, 0.640000, -0.459002)
+    float4(-0.12790935, -0.29869005, 0.600000, -1.729424)
+    float4(-0.04031125, 0.02413622, 0.600000, -4.792042)
+    float4(0.16201244, -0.52851415, 0.790000, -1.067055)
+    float4(-0.70991218, 0.47301072, 0.640000, -0.335236)
+    float4(0.03277707, -0.22349690, 0.600000, -1.982384)
+    float4(0.68921727, 0.36800742, 0.630000, -0.266718)
+    float4(0.29251814, 0.37775412, 0.610000, -1.422520)
+    float4(-0.12224089, 0.96582592, 0.600000, -0.426142)
+    float4(0.11071457, -0.16131058, 0.600000, -2.165947)
+    float4(0.46562141, -0.59747696, 0.600000, -0.189760)
+    float4(-0.51548797, 0.11804193, 0.600000, -1.246800)
+    float4(0.89141309, -0.42090443, 0.600000, 0.028192)
+    float4(-0.32402530, -0.01591529, 0.600000, -1.543018)
+    float4(0.60771245, 0.41635221, 0.600000, -0.605411)
+    float4(0.02379565, -0.08239821, 0.600000, -3.809046)
+    float4(0.48951152, -0.23657045, 0.600000, -1.189011)
+    float4(-0.17611565, -0.81696892, 0.600000, -0.513724)
+    float4(-0.33930185, -0.20732205, 0.600000, -1.698047)
+    float4(-0.91974425, 0.05403209, 0.600000, 0.062246)
+    float4(-0.15064627, -0.14949332, 0.600000, -1.896062)
+    float4(0.53180975, -0.35210401, 0.600000, -0.758838)
+    float4(0.41487166, 0.81442589, 0.600000, -0.505648)
+    float4(-0.24106961, -0.32721516, 0.600000, -1.665244)
+]
+
+// these values can be changed (up to SSAO_MAX_TAPS) with no changes required elsewhere; values for 4th and 5th preset are ignored but array needed to avoid compilation errors
+// the actual number of texture samples is two times this value (each "tap" has two symmetrical depth texture samples)
+const g_num_taps: uint[5] = [3u, 5u, 12u, 0u, 0u]
+
+// an example of higher quality low/medium/high settings
+// CONST(uint g_numTaps[5])  = { 4, 9, 16, 0, 0 };
+
+// ** WARNING ** if changing anything here, please remember to update the corresponding C++ code!
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+// Optional parts that can be enabled for a required quality preset level and above (0 == Low, 1 == Medium, 2 == High, 3 == Highest/Adaptive, 4 == reference/unused )
+// Each has its own cost. To disable just set to 5 or above.
+//
+// (experimental) tilts the disk (although only half of the samples!) towards surface normal; this helps with effect uniformity between objects but reduces effect distance and has other side-effects
+// to disable simply set to 99 or similar
+const ssao_tilt_samples_enable_at_quality_preset = 99
+const ssao_tilt_samples_amount = 0.4
+//
+// to disable simply set to 99 or similar
+const ssao_haloing_reduction_enable_at_quality_preset = 1
+// values from 0.0 - 1.0, 1.0 means max weighting (will cause artifacts, 0.8 is more reasonable)
+const ssao_haloing_reduction_amount = 0.6
+//
+// to disable simply set to 99 or similar
+const ssao_normal_based_edges_enable_at_quality_preset = 2
+// use 0-0.1 for super-sharp normal-based edges
+const ssao_normal_based_edges_dot_threshold = 0.5
+//
+// whether to use DetailAOStrength; to disable simply set to 99 or similar
+const ssao_detail_ao_enable_at_quality_preset = 1
+//
+// !!warning!! the MIP generation on the C++ side will be enabled on quality preset 2 regardless of this value, so if changing here, change the C++ side too
+const ssao_depth_mips_enable_at_quality_preset = 2
+// best noise/quality/performance tradeoff, found empirically
+const ssao_depth_mips_global_offset = -4.3
+//
+// !!warning!! the edge handling is hard-coded to 'disabled' on quality level 0, and enabled above, on the C++ side; while toggling it here will work for
+// testing purposes, it will not yield performance gains (or correct results)
+const ssao_depth_based_edges_enable_at_quality_preset = 1
+//
+// 99 means disabled; only helpful if artifacts at the edges caused by lack of out of screen depth data are not acceptable with the depth sampler in either clamp or mirror modes
+const ssao_reduce_radius_near_screen_border_enable_at_quality_preset = 99
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// packing/unpacking for edges; 2 bits per edge mean 4 gradient values (0, 0.33, 0.66, 1) for smoother transitions!
+fun pack_edges(edges_lrtb_in: float4) -> float:
+    // ivec4 edgesLRTBi = ivec4( saturate( edgesLRTB ) * 3.0 + 0.5 );
+    // return ( (edgesLRTBi.x << 6) + (edgesLRTBi.y << 4) + (edgesLRTBi.z << 2) + (edgesLRTBi.w << 0) ) / 255.0;
+
+    // optimized, should be same as above
+    let edges_lrtb = round(saturate(edges_lrtb_in) * 3.05)
+    return dot(edges_lrtb, float4(64.0 / 255.0, 16.0 / 255.0, 4.0 / 255.0, 1.0 / 255.0))
+
+fun ndc_to_viewspace(pos: float2, viewspace_depth: float){params} -> float3:
+    return float3(..((params.ndc_to_view_mul * pos.xy + params.ndc_to_view_add) * viewspace_depth), viewspace_depth)
+
+struct radius_parameters:
+    pix_lookup_radius_mod: float
+    effect_radius: float
+    falloff_calc_mul_sq: float
+
+// calculate effect radius and fit our screen sampling pattern inside it
+fun calculate_radius_parameters(pix_center_length: float, pixel_dir_rb_viewspace_size_at_center_z: float2){params} -> radius_parameters:
+    let mut effect_radius = params.effect_radius
+
+    // leaving this out for performance reasons: use something similar if radius needs to scale based on distance
+    // effectRadius *= pow( pixCenterLength, u_radiusDistanceScalingFunctionPow);
+
+    // when too close, on-screen sampling disk will grow beyond screen size; limit this to avoid closeup temporal artifacts
+    let too_close_limit_mod = saturate(pix_center_length * params.effect_sampling_radius_near_limit_rec) * 0.8 + 0.2
+
+    effect_radius *= too_close_limit_mod
+
+    return {
+        // 0.85 is to reduce the radius to allow for more samples on a slope to still stay within influence
+        pix_lookup_radius_mod = (0.85 * effect_radius) / pixel_dir_rb_viewspace_size_at_center_z.x
+        effect_radius = effect_radius
+        // used to calculate falloff (both for AO samples and per-sample weights)
+        falloff_calc_mul_sq = -1.0 / (effect_radius * effect_radius)
+    }
+
+fun calculate_edges(center_z: float, left_z: float, right_z: float, top_z: float, bottom_z: float) -> float4:
+    // slope-sensitive depth-based edge detection
+    let mut edges_lrtb = float4(left_z, right_z, top_z, bottom_z) - center_z
+    let edges_lrtb_slope_adjusted = edges_lrtb + edges_lrtb.yxwz
+    edges_lrtb = min(abs(edges_lrtb), abs(edges_lrtb_slope_adjusted))
+    return saturate(1.3 - edges_lrtb / (center_z * 0.040))
+
+    // cheaper version but has artifacts
+    // edgesLRTB = abs( vec4( leftZ, rightZ, topZ, bottomZ ) - centerZ; );
+    // return saturate( ( 1.3 - edgesLRTB / (pixZ * 0.06 + 0.1) ) );
+
+fun decode_normal(encoded_normal: float3){params} -> float3:
+    let mut normal = encoded_normal * params.normals_unpack_mul + params.normals_unpack_add
+
+    if ssao_enable_normal_world_to_view_conversion:
+        normal = float3(
+            dot(normal, params.normals_world_to_viewspace_matrix0.xyz)
+            dot(normal, params.normals_world_to_viewspace_matrix1.xyz)
+            dot(normal, params.normals_world_to_viewspace_matrix2.xyz)
+        )
+
+    // normal = normalize( normal );    // normalize adds around 2.5% cost on High settings but makes little (PSNR 66.7) visual difference when normals are as in the sample (stored in R8G8B8A8_UNORM,
+    //                                  // decoded in the shader), however it will likely be required if using different encoding/decoding or the inputs are not normalized, etc.
+
+    return normal
+
+fun load_normal(pos: int2){params, ssao} -> float3:
+    let encoded_normal = ssao.normalmap_source[pos].xyz
+    return decode_normal(encoded_normal)
+
+fun load_normal(pos: int2, offset: int2){params, ssao} -> float3:
+    let encoded_normal = ssao.normalmap_source[pos + offset].xyz
+    return decode_normal(encoded_normal)
+
+// all vectors in viewspace
+fun calculate_pixel_obscurance(pixel_normal: float3, hit_delta: float3, falloff_calc_mul_sq: float){params} -> float:
+    let length_sq = dot(hit_delta, hit_delta)
+    let n_dot_d = dot(pixel_normal, hit_delta) / sqrt(length_sq)
+
+    let falloff_mult = max(0.0, length_sq * falloff_calc_mul_sq + 1.0)
+
+    return max(0.0, n_dot_d - params.effect_horizon_angle_threshold) * falloff_mult
+
+fun ssao_tap_inner(
+    quality_level: int
+    obscurance_sum: mut float
+    weight_sum: mut float
+    sampling_uv: float2
+    mip_level: float
+    pix_center_pos: float3
+    neg_viewspace_dir: float3
+    pixel_normal: float3
+    falloff_calc_mul_sq: float
+    weight_mod: float
+    dbg_tap_index: int
+){params, ssao}:
+    // get depth at sample
+    let viewspace_sample_z = ssao.viewspace_depth_source.sample(sampling_uv.xy, ssao.s_viewspace_depth_source, level = mip_level).x
+
+    // convert to viewspace
+    let hit_pos = ndc_to_viewspace(sampling_uv.xy, viewspace_sample_z).xyz
+    let hit_delta = hit_pos - pix_center_pos
+
+    let obscurance = calculate_pixel_obscurance(pixel_normal, hit_delta, falloff_calc_mul_sq)
+    let mut weight = 1.0
+
+    if quality_level >= ssao_haloing_reduction_enable_at_quality_preset:
+        // float reduct = max( 0, dot( hitDelta, negViewspaceDir ) );
+        // cheaper, less correct version
+        let mut reduct = max(0.0, -hit_delta.z)
+        // saturate( 2.0 - reduct / u_effectRadius );
+        reduct = saturate(reduct * params.neg_rec_effect_radius + 2.0)
+        weight = ssao_haloing_reduction_amount * reduct + (1.0 - ssao_haloing_reduction_amount)
+    weight *= weight_mod
+    obscurance_sum += obscurance * weight
+    weight_sum += weight
+
+fun ssao_tap(
+    quality_level: int
+    obscurance_sum: mut float
+    weight_sum: mut float
+    tap_index: int
+    rot_scale: mat2
+    pix_center_pos: float3
+    neg_viewspace_dir: float3
+    pixel_normal: float3
+    normalized_screen_pos: float2
+    mip_offset: float
+    falloff_calc_mul_sq: float
+    weight_mod_in: float
+    norm_xy: float2
+    norm_xy_length: float
+){params, ssao}:
+    // patterns
+    let new_sample = g_sample_pattern_main[tap_index]
+    let mut sample_offset = rot_scale * new_sample.xy
+    // precalculated, same as: samplePow2Len = log2( length( newSample.xy ) );
+    let sample_pow2_len = new_sample.w
+    let weight_mod = weight_mod_in * new_sample.z
+
+    // snap to pixel center (more correct obscurance math, avoids artifacts)
+    sample_offset = round(sample_offset)
+
+    // calculate MIP based on the sample distance from the centre, similar to as described
+    // in http://graphics.cs.williams.edu/papers/SAOHPG12/.
+    let mip_level = if quality_level < ssao_depth_mips_enable_at_quality_preset => 0.0 else sample_pow2_len + mip_offset
+
+    let sampling_uv = sample_offset * params.viewport_2x_pixel_size + normalized_screen_pos
+
+    ssao_tap_inner(
+        quality_level
+        mut obscurance_sum
+        mut weight_sum
+        sampling_uv
+        mip_level
+        pix_center_pos
+        neg_viewspace_dir
+        pixel_normal
+        falloff_calc_mul_sq
+        weight_mod
+        tap_index * 2
+    )
+
+    // for the second tap, just use the mirrored offset
+    let mut sample_offset_mirrored_uv = -sample_offset
+
+    // tilt the second set of samples so that the disk is effectively rotated by the normal
+    // effective at removing one set of artifacts, but too expensive for lower quality settings
+    if quality_level >= ssao_tilt_samples_enable_at_quality_preset:
+        let dot_norm = dot(sample_offset_mirrored_uv, norm_xy)
+        sample_offset_mirrored_uv -= dot_norm * norm_xy_length * norm_xy
+        sample_offset_mirrored_uv = round(sample_offset_mirrored_uv)
+
+    // snap to pixel center (more correct obscurance math, avoids artifacts)
+    let sampling_mirrored_uv = sample_offset_mirrored_uv * params.viewport_2x_pixel_size + normalized_screen_pos
+
+    ssao_tap_inner(
+        quality_level
+        mut obscurance_sum
+        mut weight_sum
+        sampling_mirrored_uv
+        mip_level
+        pix_center_pos
+        neg_viewspace_dir
+        pixel_normal
+        falloff_calc_mul_sq
+        weight_mod
+        tap_index * 2 + 1
+    )
+
+struct ssao_shadows:
+    shadow_term: float
+    edges: float4
+    weight: float
+
+// this function is designed to only work with half/half depth at the moment - there's a couple of hardcoded paths that expect pixel/texel size, so it will not work for full res
+fun generate_ssao_shadows_internal(sv_pos: float2, quality_level: int, adaptive_base: bool){params, ssao} -> ssao_shadows:
+    let sv_pos_rounded = trunc(sv_pos)
+    // same as uvec2( SVPos )
+    let sv_pos_ui = sv_pos_rounded as uint2
+
+    let number_of_taps = if adaptive_base => ssao_adaptive_tap_base_count as uint else g_num_taps[quality_level]
+
+    let values_ul = ssao.viewspace_depth_source_mirror.gather(sv_pos_rounded * params.half_viewport_pixel_size, ssao.s_viewspace_depth_source_mirror)
+    let values_br = ssao.viewspace_depth_source_mirror.gather(
+        sv_pos_rounded * params.half_viewport_pixel_size
+        ssao.s_viewspace_depth_source_mirror
+        offset = int2(1, 1)
+    )
+
+    // get this pixel's viewspace depth
+    let pix_z = values_ul.y
+
+    // get left right top bottom neighbouring pixels for edge detection (gets compiled out on qualityLevel == 0)
+    let pix_lz = values_ul.x
+    let pix_tz = values_ul.z
+    let pix_rz = values_br.z
+    let pix_bz = values_br.x
+
+    let normalized_screen_pos = sv_pos_rounded * params.viewport_2x_pixel_size + params.viewport_2x_pixel_size_x_025
+    let mut pix_center_pos = ndc_to_viewspace(normalized_screen_pos, pix_z)
+
+    // load this pixel's viewspace normal
+    let full_res_coord = (((sv_pos_ui * 2u) as float2) + params.per_pass_full_res_coord_offset.xy) as uint2
+    let pixel_normal = load_normal(full_res_coord as int2)
+
+    // optimized approximation of:  vec2 pixelDirRBViewspaceSizeAtCenterZ = NDCToViewspace( normalizedScreenPos.xy + u_viewportPixelSize.xy, pixCenterPos.z ).xy - pixCenterPos.xy;
+    let pixel_dir_rb_viewspace_size_at_center_z = pix_center_pos.z * params.ndc_to_view_mul * params.viewport_2x_pixel_size
+
+    // calculate effect radius and fit our screen sampling pattern inside it
+    let radius = calculate_radius_parameters(length(pix_center_pos), pixel_dir_rb_viewspace_size_at_center_z)
+    let mut pix_lookup_radius_mod = radius.pix_lookup_radius_mod
+    let effect_viewspace_radius = radius.effect_radius
+    let falloff_calc_mul_sq = radius.falloff_calc_mul_sq
+
+    // calculate samples rotation/scaling
+
+    // reduce effect radius near the screen edges slightly; ideally, one would render a larger depth buffer (5% on each side) instead
+    if (not adaptive_base) and quality_level >= ssao_reduce_radius_near_screen_border_enable_at_quality_preset:
+        let mut near_screen_border = min(
+            min(normalized_screen_pos.x, 1.0 - normalized_screen_pos.x)
+            min(normalized_screen_pos.y, 1.0 - normalized_screen_pos.y)
+        )
+        near_screen_border = saturate(10.0 * near_screen_border + 0.6)
+        pix_lookup_radius_mod *= near_screen_border
+
+    // load & update pseudo-random rotation matrix
+    let pseudo_random_index = ((sv_pos_rounded.y * 2.0 + sv_pos_rounded.x) as uint) % 5u
+    let rs = params.pattern_rot_scale_matrices[pseudo_random_index]
+    // the original's float2x2(a, b, c, d) has the rows (a, b) and (c, d), and a mat2 is built from its columns
+    let rot_scale = mat2(float2(rs.x, rs.z) * pix_lookup_radius_mod, float2(rs.y, rs.w) * pix_lookup_radius_mod)
+
+    // the main obscurance & sample weight storage
+    let mut obscurance_sum = 0.0
+    let mut weight_sum = 0.0
+
+    // edge mask for between this and left/right/top/bottom neighbour pixels - not used in quality level 0 so initialize to "no edge" (1 is no edge, 0 is edge)
+    let mut edges_lrtb = float4(1.0, 1.0, 1.0, 1.0)
+
+    // Move center pixel slightly towards camera to avoid imprecision artifacts due to using of 16bit depth buffer; a lot smaller offsets needed when using 32bit floats
+    pix_center_pos *= params.depth_precision_offset_mod
+
+    if (not adaptive_base) and quality_level >= ssao_depth_based_edges_enable_at_quality_preset:
+        edges_lrtb = calculate_edges(pix_z, pix_lz, pix_rz, pix_tz, pix_bz)
+
+    // adds a more high definition sharp effect, which gets blurred out (reuses left/right/top/bottom samples that we used for edge detection)
+    if (not adaptive_base) and quality_level >= ssao_detail_ao_enable_at_quality_preset:
+        // disable in case of quality level 4 (reference)
+        if quality_level != 4:
+            // approximate neighbouring pixels positions (actually just deltas or "positions - pixCenterPos" )
+            let viewspace_dir_z_normalized = float3(..(pix_center_pos.xy / pix_center_pos.zz), 1.0)
+            // very close approximation of: vec3 pixLPos  = NDCToViewspace( normalizedScreenPos + vec2( -u_halfViewportPixelSize.x, 0.0 ), pixLZ ).xyz - pixCenterPos.xyz;
+            let pix_l_delta = float3(-pixel_dir_rb_viewspace_size_at_center_z.x, 0.0, 0.0) + viewspace_dir_z_normalized * (pix_lz - pix_center_pos.z)
+            // very close approximation of: vec3 pixRPos  = NDCToViewspace( normalizedScreenPos + vec2( +u_halfViewportPixelSize.x, 0.0 ), pixRZ ).xyz - pixCenterPos.xyz;
+            let pix_r_delta = float3(pixel_dir_rb_viewspace_size_at_center_z.x, 0.0, 0.0) + viewspace_dir_z_normalized * (pix_rz - pix_center_pos.z)
+            // very close approximation of: vec3 pixTPos  = NDCToViewspace( normalizedScreenPos + vec2( 0.0, -u_halfViewportPixelSize.y ), pixTZ ).xyz - pixCenterPos.xyz;
+            let pix_t_delta = float3(0.0, -pixel_dir_rb_viewspace_size_at_center_z.y, 0.0) + viewspace_dir_z_normalized * (pix_tz - pix_center_pos.z)
+            // very close approximation of: vec3 pixBPos  = NDCToViewspace( normalizedScreenPos + vec2( 0.0, +u_halfViewportPixelSize.y ), pixBZ ).xyz - pixCenterPos.xyz;
+            let pix_b_delta = float3(0.0, pixel_dir_rb_viewspace_size_at_center_z.y, 0.0) + viewspace_dir_z_normalized * (pix_bz - pix_center_pos.z)
+
+            // this is to avoid various artifacts
+            let range_reduction_const = 4.0
+            let modified_falloff_calc_mul_sq = range_reduction_const * falloff_calc_mul_sq
+
+            let additional_obscurance = float4(
+                calculate_pixel_obscurance(pixel_normal, pix_l_delta, modified_falloff_calc_mul_sq)
+                calculate_pixel_obscurance(pixel_normal, pix_r_delta, modified_falloff_calc_mul_sq)
+                calculate_pixel_obscurance(pixel_normal, pix_t_delta, modified_falloff_calc_mul_sq)
+                calculate_pixel_obscurance(pixel_normal, pix_b_delta, modified_falloff_calc_mul_sq)
+            )
+
+            obscurance_sum += params.detail_ao_strength * dot(additional_obscurance, edges_lrtb)
+
+    // Sharp normals also create edges - but this adds to the cost as well
+    if (not adaptive_base) and quality_level >= ssao_normal_based_edges_enable_at_quality_preset:
+        let neighbour_normal_l = load_normal(full_res_coord as int2, int2(-2, 0))
+        let neighbour_normal_r = load_normal(full_res_coord as int2, int2(2, 0))
+        let neighbour_normal_t = load_normal(full_res_coord as int2, int2(0, -2))
+        let neighbour_normal_b = load_normal(full_res_coord as int2, int2(0, 2))
+
+        let dot_threshold = ssao_normal_based_edges_dot_threshold
+
+        let normal_edges_lrtb = float4(
+            saturate(dot(pixel_normal, neighbour_normal_l) + dot_threshold)
+            saturate(dot(pixel_normal, neighbour_normal_r) + dot_threshold)
+            saturate(dot(pixel_normal, neighbour_normal_t) + dot_threshold)
+            saturate(dot(pixel_normal, neighbour_normal_b) + dot_threshold)
+        )
+
+        // SSAO_SMOOTHEN_NORMALS, which the original leaves undefined, fixes some aliasing artifacts but kills a lot of high detail and adds to the cost - not worth it probably
+
+        edges_lrtb *= normal_edges_lrtb
+
+    let global_mip_offset = ssao_depth_mips_global_offset
+    let mip_offset = if quality_level < ssao_depth_mips_enable_at_quality_preset => 0.0 else log2(pix_lookup_radius_mod) + global_mip_offset
+
+    // Used to tilt the second set of samples so that the disk is effectively rotated by the normal
+    // effective at removing one set of artifacts, but too expensive for lower quality settings
+    let mut norm_xy = float2(pixel_normal.x, pixel_normal.y)
+    let mut norm_xy_length = length(norm_xy)
+    norm_xy /= float2(norm_xy_length, -norm_xy_length)
+    norm_xy_length *= ssao_tilt_samples_amount
+
+    let neg_viewspace_dir = -normalize(pix_center_pos)
+
+    // standard, non-adaptive approach
+    if quality_level != 3 or adaptive_base:
+        // [unroll] // <- doesn't seem to help on any platform, although the compilers seem to unroll anyway if const number of tap used!
+        for i in 0 ..< (number_of_taps as int):
+            ssao_tap(
+                quality_level
+                mut obscurance_sum
+                mut weight_sum
+                i
+                rot_scale
+                pix_center_pos
+                neg_viewspace_dir
+                pixel_normal
+                normalized_screen_pos
+                mip_offset
+                falloff_calc_mul_sq
+                1.0
+                norm_xy
+                norm_xy_length
+            )
+    // if( qualityLevel == 3 ) adaptive approach
+    else:
+        // add new ones if needed
+        let full_res_uv = normalized_screen_pos + params.per_pass_full_res_uv_offset.xy
+        let mut importance = ssao.importance_map.sample(full_res_uv, ssao.s_importance_map, level = 0.0).x
+
+        // this is to normalize SSAO_DETAIL_AO_AMOUNT across all pixel regardless of importance
+        obscurance_sum *= (
+            ((ssao_adaptive_tap_base_count as float) / (ssao_max_taps as float))
+            + (importance * (ssao_adaptive_tap_flexible_count as float) / (ssao_max_taps as float))
+        )
+
+        // load existing base values
+        let base_values = ssao.base_ssao[sv_pos_ui as int2, layer = params.pass_index as int]
+        weight_sum += base_values.y * ((ssao_adaptive_tap_base_count as float) * 4.0)
+        obscurance_sum += base_values.x * weight_sum
+
+        // increase importance around edges
+        let edge_count = dot(1.0 - edges_lrtb, float4(1.0, 1.0, 1.0, 1.0))
+        // importance += edgeCount / (float)SSAO_ADAPTIVE_TAP_FLEXIBLE_COUNT;
+
+        let avg_total_importance = (ssao.load_counter[0] as float) * params.load_counter_avg_div
+
+        let importance_limiter = saturate(params.adaptive_sample_count_limit / avg_total_importance)
+        importance *= importance_limiter
+
+        let mut additional_sample_count_flt = (ssao_adaptive_tap_flexible_count as float) * importance
+
+        // use 1 to just blend the last one; use larger number to blend over more for a more smooth transition
+        let blend_range = 3.0
+        let blend_range_inv = 1.0 / blend_range
+
+        additional_sample_count_flt += 0.5
+        let additional_samples = additional_sample_count_flt as uint
+        let additional_samples_to = min(ssao_max_taps as uint, additional_samples + (ssao_adaptive_tap_base_count as uint))
+
+        // additional manual unroll doesn't help unfortunately
+        // gap: SGL has no spelling for HLSL's [loop], the hint that keeps a loop from being unrolled
+        for i in ssao_adaptive_tap_base_count ..< (additional_samples_to as int):
+            additional_sample_count_flt -= 1.0
+            // slowly blend in the last few samples
+            let weight_mod = saturate(additional_sample_count_flt * blend_range_inv)
+            ssao_tap(
+                quality_level
+                mut obscurance_sum
+                mut weight_sum
+                i
+                rot_scale
+                pix_center_pos
+                neg_viewspace_dir
+                pixel_normal
+                normalized_screen_pos
+                mip_offset
+                falloff_calc_mul_sq
+                weight_mod
+                norm_xy
+                norm_xy_length
+            )
+
+    // early out for adaptive base - just output weight (used for the next pass)
+    if adaptive_base:
+        let obscurance = obscurance_sum / weight_sum
+
+        return {
+            shadow_term = obscurance
+            edges = float4(0.0, 0.0, 0.0, 0.0)
+            weight = weight_sum
+        }
+
+    // calculate weighted average
+    let mut obscurance = obscurance_sum / weight_sum
+
+    // calculate fadeout (1 close, gradient, 0 far)
+    let mut fade_out = saturate(pix_center_pos.z * params.effect_fade_out_mul + params.effect_fade_out_add)
+
+    // Reduce the SSAO shadowing if we're on the edge to remove artifacts on edges (we don't care for the lower quality one)
+    if (not adaptive_base) and quality_level >= ssao_depth_based_edges_enable_at_quality_preset:
+        // float edgeCount = dot( 1.0-edgesLRTB, vec4( 1.0, 1.0, 1.0, 1.0 ) );
+
+        // when there's more than 2 opposite edges, start fading out the occlusion to reduce aliasing artifacts
+        let edge_fadeout_factor = saturate((1.0 - edges_lrtb.x - edges_lrtb.y) * 0.35) + saturate((1.0 - edges_lrtb.z - edges_lrtb.w) * 0.35)
+
+        // (experimental) if you want to reduce the effect next to any edge
+        // edgeFadeoutFactor += 0.1 * saturate( dot( 1 - edgesLRTB, vec4( 1, 1, 1, 1 ) ) );
+
+        fade_out *= saturate(1.0 - edge_fadeout_factor)
+
+    // same as a bove, but a lot more conservative version
+    // fadeOut *= saturate( dot( edgesLRTB, vec4( 0.9, 0.9, 0.9, 0.9 ) ) - 2.6 );
+
+    // strength
+    obscurance = params.effect_shadow_strength * obscurance
+
+    // clamp
+    obscurance = min(obscurance, params.effect_shadow_clamp)
+
+    // fadeout
+    obscurance *= fade_out
+
+    // conceptually switch to occlusion with the meaning being visibility (grows with visibility, occlusion == 1 implies full visibility),
+    // to be in line with what is more commonly used.
+    let mut occlusion = 1.0 - obscurance
+
+    // modify the gradient
+    // note: this cannot be moved to a later pass because of loss of precision after storing in the render target
+    occlusion = pow(saturate(occlusion), params.effect_shadow_pow)
+
+    // outputs!
+    return {
+        // Our final 'occlusion' term (0 means fully occluded, 1 means fully lit)
+        shadow_term = occlusion
+        // These are used to prevent blurring across edges, 1 means no edge, 0 means edge, 0.5 means half way there, etc.
+        edges = edges_lrtb
+        weight = weight_sum
+    }
+
+@compute(8, 8, 1) fun main(@thread_id id: int3){params, ssao}:
+    let dt_id = (id.xy as uint2) + (params.rect.xy as uint2)
+    if all(dt_id < (params.rect.zw as uint2)):
+        let shadows = generate_ssao_shadows_internal(dt_id.xy as float2, assao_quality, assao_adaptive_base)
+        let mut out0 = float2(shadows.shadow_term, 0.0)
+
+        if assao_adaptive_base:
+            // 0.0; //frac(outWeight / 6.0);// / (float)(SSAO_MAX_TAPS * 4.0);
+            out0.y = shadows.weight / ((ssao_adaptive_tap_base_count as float) * 4.0)
+        else if assao_quality == 0:
+            // no edges in low quality
+            out0.y = pack_edges(float4(1.0, 1.0, 1.0, 1.0))
+        else:
+            out0.y = pack_edges(shadows.edges)
+        ssao.target[dt_id as int2, layer = params.layer as int] = out0

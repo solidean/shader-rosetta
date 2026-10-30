@@ -1,0 +1,23 @@
+// Translated to SGL from bgfx examples/19-oit/fs_oit_wb_separate_blit.sc.
+// Copyright 2011-2026 Branimir Karadzic. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding material:
+    tex_color0: texture_2d[float4]
+    tex_color1: texture_2d[float4]
+    sampler s_tex:
+        filter = .linear
+
+struct varyings:
+    @position position: hpos4
+    texcoord0: float2
+
+@pixel struct target:
+    color: float4
+
+@pixel fun main(p: varyings){material} -> target:
+    let accum = material.tex_color0.sample(p.texcoord0, material.s_tex)
+    let opacity = accum.w
+    let weight = material.tex_color1.sample(p.texcoord0, material.s_tex).x
+    return {
+        color = float4(..(accum.xyz / clamp(weight, 1e-4, 5e4)), opacity)
+    }

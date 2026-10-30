@@ -1,0 +1,59 @@
+// Translated to SGL from bgfx examples/44-sss/vs_sss_gbuffer.sc and parameters.sh.
+// Copyright 2021 elven cache. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding view:
+    model: mat4
+    model_view_proj: mat4
+
+// bgfx's u_params[12], one member per define of parameters.sh
+binding params:
+    frame_idx: float
+    shadow_radius: float
+    shadow_steps: float
+    use_noise_offset: float
+    depth_unpack_consts: float2
+    contact_shadows_mode: float
+    use_screen_space_radius: float
+    ndc_to_view_mul: float2
+    ndc_to_view_add: float2
+    light_position: float3
+    display_shadows: float
+    world_to_view0: float4
+    world_to_view1: float4
+    world_to_view2: float4
+    world_to_view3: float4
+    view_to_proj0: float4
+    view_to_proj1: float4
+    view_to_proj2: float4
+    view_to_proj3: float4
+
+// bgfx declares a vec4 and reads only its xyz
+@vertex struct vertex_input:
+    position: pos3
+    normal: float3
+    texcoord0: float2
+
+struct varyings:
+    @position position: hpos4
+    normal: float3
+    texcoord0: float2
+    texcoord1: float4
+
+@vertex fun main(v: vertex_input){view} -> varyings:
+    // Calculate vertex position
+    let pos = v.position
+
+    // Calculate normal, unpack
+    let os_normal = v.normal * 2.0 - 1.0
+
+    // Transform normal into world space
+    let ws_normal = (view.model * float4(..os_normal, 0.0)).xyz
+
+    // Pass through world space position
+    let ws_pos = (view.model * pos).xyz
+    return {
+        position = view.model_view_proj * pos
+        normal = normalize(ws_normal)
+        texcoord0 = v.texcoord0
+        texcoord1 = float4(..ws_pos, 1.0)
+    }

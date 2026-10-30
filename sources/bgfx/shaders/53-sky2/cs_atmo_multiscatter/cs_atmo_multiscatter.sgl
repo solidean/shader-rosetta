@@ -1,0 +1,175 @@
+// Translated to SGL from bgfx examples/53-sky2/cs_atmo_multiscatter.sc, with atmosphere.sh.
+// Copyright 2026 Mateusz Kozdrowicki. BSD-2-Clause: sources/bgfx/LICENSE.
+
+// Reference: Hillaire, Sébastien. "A Scalable and Production Ready Sky and Atmosphere Rendering Technique.
+// https://sebh.github.io/publications/egsr2020.pdf
+
+// multiple scattering lut
+
+const lut_size = 32
+const dir_count = 8
+const steps = 20
+
+// atmosphere.sh's uniforms, one member per define
+binding atmosphere:
+    // u_atmoRayleigh, xyz: rayleigh scatter (1/km), w: rayleigh scale height (km)
+    rayleigh_scatter: float3
+    rayleigh_h: float
+    // u_atmoMie, x: mie scatter, y: mie extinction (1/km), z: mie scale height (km), w: mie phase g
+    mie_scatter: float
+    mie_extinction: float
+    mie_h: float
+    mie_g: float
+    // u_atmoOzone, xyz: ozone absorption (1/km), w: multiple scattering strength
+    ozone_absorb: float3
+    ms_strength: float
+    // u_atmoPlanet, x: bottom radius, y: top radius (km), z: ozone center, w: ozone half-width (km)
+    bottom_radius: float
+    top_radius: float
+    ozone_center: float
+    ozone_half: float
+    // u_atmoGround
+    ground_albedo: float3
+
+binding lut:
+    atmo_transmittance: texture_2d[float4]
+    sampler s_tex:
+        filter = .linear
+    multiscatter_out: out image_2d[.rgba16_float]
+
+// ---- atmosphere.sh ----
+
+// Reference: Hillaire, Sébastien. "A Scalable and Production Ready Sky and Atmosphere Rendering Technique.
+// https://sebh.github.io/publications/egsr2020.pdf
+
+const atmo_pi = 3.14159265359
+
+struct atmosphere_medium_sample:
+    scatter_rayleigh: float3
+    scatter_mie: float
+    extinction: float3
+
+fun atmosphere_medium(h: float){atmosphere} -> atmosphere_medium_sample:
+    let density_r = exp(-h / atmosphere.rayleigh_h)
+    let density_m = exp(-h / atmosphere.mie_h)
+    let density_o = max(0.0, 1.0 - abs(h - atmosphere.ozone_center) / atmosphere.ozone_half)
+
+    return {
+        scatter_rayleigh = atmosphere.rayleigh_scatter * density_r
+        scatter_mie = atmosphere.mie_scatter * density_m
+        extinction = atmosphere.rayleigh_scatter * density_r
+            + float3(atmosphere.mie_extinction * density_m)
+            + atmosphere.ozone_absorb * density_o
+    }
+
+fun atmosphere_phase_rayleigh(cos_theta: float) -> float:
+    return 3.0 / (16.0 * atmo_pi) * (1.0 + cos_theta * cos_theta)
+
+fun atmosphere_phase_mie(cos_theta: float){atmosphere} -> float:
+    let g = atmosphere.mie_g
+    let g2 = g * g
+    let d = 1.0 + g2 - 2.0 * g * cos_theta
+    return 3.0 / (8.0 * atmo_pi) * ((1.0 - g2) * (1.0 + cos_theta * cos_theta)) / ((2.0 + g2) * d * sqrt(max(d, 1e-6)))
+
+fun atmosphere_dist_to_sphere(r: float, mu: float, big_r: float) -> float:
+    let disc = r * r * (mu * mu - 1.0) + big_r * big_r
+    return max(0.0, -r * mu + sqrt(max(disc, 0.0)))
+
+fun atmosphere_hits_ground(r: float, mu: float){atmosphere} -> bool:
+    return mu < 0.0 and (r * r * (mu * mu - 1.0) + atmosphere.bottom_radius * atmosphere.bottom_radius) >= 0.0
+
+// transmittance lut parameterization Bruneton's distance based mapping.
+fun atmosphere_transmittance_uv(r: float, mu: float){atmosphere} -> float2:
+    let h = sqrt(atmosphere.top_radius * atmosphere.top_radius - atmosphere.bottom_radius * atmosphere.bottom_radius)
+    let rho = sqrt(max(r * r - atmosphere.bottom_radius * atmosphere.bottom_radius, 0.0))
+
+    let d = atmosphere_dist_to_sphere(r, mu, atmosphere.top_radius)
+    let d_min = atmosphere.top_radius - r
+    let d_max = rho + h
+
+    return float2((d - d_min) / (d_max - d_min), rho / h)
+
+const sphere_solid_angle = 4.0 * atmo_pi
+const inv_samples = 1.0 / ((dir_count * dir_count) as float)
+const uniform_phase = 1.0 / sphere_solid_angle
+
+fun sample_transmittance(r: float, mu: float){atmosphere, lut} -> float3:
+    return lut.atmo_transmittance.sample(atmosphere_transmittance_uv(r, mu), lut.s_tex, level = 0.0).rgb
+
+@compute(8, 8, 1) fun main(@thread_id id: int3){atmosphere, lut}:
+    let coord = id.xy
+    if coord.x >= lut_size or coord.y >= lut_size => return
+
+    let uv = ((coord as float2) + float2(0.5, 0.5)) / float2(lut_size as float, lut_size as float)
+
+    let sun_cos = uv.x * 2.0 - 1.0
+    let r = atmosphere.bottom_radius + uv.y * (atmosphere.top_radius - atmosphere.bottom_radius) + 0.01
+
+    // zenith = +Z here
+    let sun_dir = float3(sqrt(max(1.0 - sun_cos * sun_cos, 0.0)), 0.0, sun_cos)
+
+    let mut luminance = float3(0.0, 0.0, 0.0)
+    let mut f_ms = float3(0.0, 0.0, 0.0)
+
+    for a in 0 ..< dir_count:
+        for b in 0 ..< dir_count:
+            let cos_theta = 1.0 - 2.0 * ((a as float) + 0.5) / (dir_count as float)
+            let sin_theta = sqrt(max(1.0 - cos_theta * cos_theta, 0.0))
+            let phi = 2.0 * atmo_pi * ((b as float) + 0.5) / (dir_count as float)
+
+            let dir = float3(sin_theta * cos(phi), sin_theta * sin(phi), cos_theta)
+
+            let ground = atmosphere_hits_ground(r, dir.z)
+            let t_max = if ground => max(0.0, -r * dir.z - sqrt(max(r * r * (dir.z * dir.z - 1.0) + atmosphere.bottom_radius * atmosphere.bottom_radius, 0.0)))
+                else atmosphere_dist_to_sphere(r, dir.z, atmosphere.top_radius)
+
+            let dt = t_max / (steps as float)
+
+            let mut throughput = float3(1.0, 1.0, 1.0)
+            let mut l = float3(0.0, 0.0, 0.0)
+            let mut lf = float3(0.0, 0.0, 0.0)
+
+            let cos_sun = dot(dir, sun_dir)
+            let phase_r = atmosphere_phase_rayleigh(cos_sun)
+            let phase_m = atmosphere_phase_mie(cos_sun)
+
+            for s in 0 ..< steps:
+                let t = ((s as float) + 0.5) * dt
+
+                let pos = float3(0.0, 0.0, r) + dir * t
+                let sample_r = length(pos)
+                let h = sample_r - atmosphere.bottom_radius
+                let mu_sun = dot(pos, sun_dir) / sample_r
+
+                let medium = atmosphere_medium(max(h, 0.0))
+                let scatter_r = medium.scatter_rayleigh
+                let scatter_m = medium.scatter_mie
+                let extinction = medium.extinction
+
+                let scatter_total = scatter_r + float3(scatter_m)
+
+                let sun_transmittance = sample_transmittance(sample_r, mu_sun)
+                let sun_shadowed = atmosphere_hits_ground(sample_r, mu_sun)
+
+                let s_in = (scatter_r * phase_r + float3(scatter_m * phase_m)) * sun_transmittance * (if sun_shadowed => 0.0 else 1.0)
+
+                let step_transmittance = exp(-extinction * dt)
+                let safe_extinction = max(extinction, float3(1e-7))
+
+                l += throughput * (s_in - s_in * step_transmittance) / safe_extinction
+                lf += throughput * (scatter_total - scatter_total * step_transmittance) / safe_extinction
+
+                throughput *= step_transmittance
+
+            if ground:
+                let pos_ground = float3(0.0, 0.0, r) + dir * t_max
+                let mu_ground = clamp(dot(pos_ground, sun_dir) / atmosphere.bottom_radius, -1.0, 1.0)
+                let sun_t = sample_transmittance(atmosphere.bottom_radius, mu_ground)
+                l += throughput * sun_t * max(mu_ground, 0.0) * atmosphere.ground_albedo / atmo_pi
+
+            luminance += l * uniform_phase * sphere_solid_angle * inv_samples
+            f_ms += lf * uniform_phase * sphere_solid_angle * inv_samples
+
+    let psi = luminance / max(float3(1.0) - f_ms, float3(1e-4))
+
+    lut.multiscatter_out[coord] = float4(..psi, 1.0) as texel[.rgba16_float]

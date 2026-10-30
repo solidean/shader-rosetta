@@ -1,0 +1,89 @@
+// Translated to SGL from bgfx examples/43-denoise/vs_denoise_gbuffer.sc and parameters.sh.
+// Copyright 2021 elven cache. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding view:
+    inv_view: mat4
+    model: mat4
+    model_view_proj: mat4
+
+// bgfx's u_params[13], one member per define of parameters.sh
+binding params:
+    jitter_curr: float2
+    jitter_prev: float2
+    feedback_min: float
+    feedback_max: float
+    unused1: float2
+    unused2: float
+    apply_mitchell_filter: float
+    unused2zw: float2
+    world_to_view_prev0: float4
+    world_to_view_prev1: float4
+    world_to_view_prev2: float4
+    world_to_view_prev3: float4
+    view_to_proj_prev0: float4
+    view_to_proj_prev1: float4
+    view_to_proj_prev2: float4
+    view_to_proj_prev3: float4
+    frame_idx: float
+    // 0=none, 1=dither, 2=random
+    noise_type: float
+    unused11: float2
+    tex_coord_step: float
+    sigma_depth: float
+    sigma_normal: float
+
+// bgfx declares a vec4 and reads only its xyz
+@vertex struct vertex_input:
+    position: pos3
+    normal: float3
+    texcoord0: float2
+
+struct varyings:
+    @position position: hpos4
+    normal: float3
+    texcoord0: float2
+    texcoord1: float4
+    texcoord2: float4
+    texcoord3: float4
+
+@vertex fun main(v: vertex_input){view, params} -> varyings:
+    // Calculate vertex position
+    let pos = v.position
+
+    // Calculate previous frame's position
+    let world_to_view_prev = mat4(
+        params.world_to_view_prev0
+        params.world_to_view_prev1
+        params.world_to_view_prev2
+        params.world_to_view_prev3
+    )
+    let view_to_proj_prev = mat4(
+        params.view_to_proj_prev0
+        params.view_to_proj_prev1
+        params.view_to_proj_prev2
+        params.view_to_proj_prev3
+    )
+
+    let ws_pos = (view.model * pos).xyz
+    let vsp_pos = (world_to_view_prev * float4(..ws_pos, 1.0)).xyz
+    let psp_pos = view_to_proj_prev * float4(..vsp_pos, 1.0)
+
+    // Calculate normal, unpack
+    let os_normal = v.normal * 2.0 - 1.0
+
+    // Transform normal into world space
+    let ws_normal = (view.model * float4(..os_normal, 0.0)).xyz
+
+    // Store world space view vector in extra texCoord attribute
+    let ws_cam_pos = (view.inv_view * float4(0.0, 0.0, 0.0, 1.0)).xyz
+    let view_dir = normalize(ws_cam_pos - ws_pos)
+
+    return {
+        position = view.model_view_proj * pos
+        normal = normalize(ws_normal)
+        texcoord0 = v.texcoord0
+        // Store previous frame projection space position in extra texCoord attribute
+        texcoord1 = psp_pos
+        texcoord2 = float4(..ws_pos, 1.0)
+        texcoord3 = float4(..ws_cam_pos, 1.0)
+    }

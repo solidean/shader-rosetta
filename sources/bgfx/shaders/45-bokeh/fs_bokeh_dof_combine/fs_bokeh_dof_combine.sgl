@@ -1,0 +1,35 @@
+// Translated to SGL from bgfx examples/45-bokeh/fs_bokeh_dof_combine.sc.
+// Copyright 2021 elven cache. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding material:
+    color: texture_2d[float4]
+    blurred_color: texture_2d[float4]
+    sampler s_tex:
+        filter = .linear
+
+struct varyings:
+    @position position: hpos4
+    texcoord0: float2
+
+@pixel struct target:
+    color: float4
+
+// shaderlib.sh
+fun to_gamma(rgb: float3) => pow(abs(rgb), float3(1.0 / 2.2))
+
+@pixel fun main(p: varyings){material} -> target:
+    let tex_coord = p.texcoord0.xy
+    let mut color = material.color.sample(tex_coord, material.s_tex)
+    let dof_color_size = material.blurred_color.sample(tex_coord, material.s_tex)
+    let dof_color = dof_color_size.xyz
+    let sample_size = dof_color_size.w
+
+    let m = saturate(sample_size - 1.0)
+    color.xyz = mix(color.xyz, dof_color, m)
+
+    // this pass is writing directly out to backbuffer, convert from linear to gamma
+    color.xyz = to_gamma(color.xyz)
+
+    return {
+        color = color
+    }

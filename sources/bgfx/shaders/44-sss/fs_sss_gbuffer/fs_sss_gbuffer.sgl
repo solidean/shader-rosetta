@@ -1,0 +1,161 @@
+// Translated to SGL from bgfx examples/44-sss/fs_sss_gbuffer.sc, parameters.sh and normal_encoding.sh.
+// The original carries no copyright line; bgfx: Copyright 2010-2026 Branimir Karadzic. BSD-2-Clause: sources/bgfx/LICENSE.
+
+// bgfx's u_params[12], one member per define of parameters.sh
+binding params:
+    frame_idx: float
+    shadow_radius: float
+    shadow_steps: float
+    use_noise_offset: float
+    depth_unpack_consts: float2
+    contact_shadows_mode: float
+    use_screen_space_radius: float
+    ndc_to_view_mul: float2
+    ndc_to_view_add: float2
+    light_position: float3
+    display_shadows: float
+    world_to_view0: float4
+    world_to_view1: float4
+    world_to_view2: float4
+    world_to_view3: float4
+    view_to_proj0: float4
+    view_to_proj1: float4
+    view_to_proj2: float4
+    view_to_proj3: float4
+
+binding material:
+    albedo: texture_2d[float4]
+    normal: texture_2d[float4]
+    sampler s_tex:
+        filter = .linear
+
+struct varyings:
+    @position position: hpos4
+    normal: float3
+    texcoord0: float2
+    texcoord1: float4
+
+@pixel struct target:
+    albedo: float4
+    // xyz is the encoded normal, w the roughness
+    normal: float4
+
+// shaderlib.sh
+fun to_linear(rgb: float3) => pow(abs(rgb), float3(2.2))
+
+fun to_gamma(rgb: float3) => pow(abs(rgb), float3(1.0 / 2.2))
+
+// normal_encoding.sh
+const ne_use_octahedral_representation = true
+
+// From "A Survey of Efficient Representations for Independent Unit Vectors"
+// http://jcgt.org/published/0003/02/01/paper.pdf
+
+// Convert an oct24 (2x12bit normal) to an rgb8 value for storing in texture
+fun snorm12x2_to_unorm8x3(f: float2) -> float3:
+    let f = clamp(f, -1.0, 1.0)
+    let u = floor(f * 2047.0 + 2047.5)
+    let t = floor(u.y / 256.0)
+
+    // "This code assumes that rounding will occur during storage."
+    // -- Not certain but this appears to mainly apply to the x channel.
+    //    From paper: x = u.x / 16.0 - 0.5
+    //    Instead round by +0.5 and floor.
+    return float3(floor(u.x / 16.0), fract(u.x / 16.0) * 256.0 + t, u.y - t * 256.0) / 255.0
+
+// Unpack oct24 (2x12bit normal) from an rgb8 value stored in texture (normal spec)
+fun unorm8x3_to_snorm12x2(u: float3) -> float2:
+    let mut u = u * 255.0
+    u.y *= 1.0 / 16.0
+    let mut s = float2(u.x * 16.0 + floor(u.y), fract(u.y) * (16.0 * 256.0) + u.z)
+
+    s = s * (1.0 / 2047.0) - 1.0
+    return min(max(s, -1.0), 1.0)
+
+// Built in sign test could return 0, don't want that
+fun sign_not_zero(v: float2) => float2(if v.x >= 0.0 => 1.0 else -1.0, if v.y >= 0.0 => 1.0 else -1.0)
+
+// Assume normalized input. Output is (-1, 1) for each component
+fun float32x3_to_oct(v: float3) -> float2:
+    // Project the sphere onto the octahedron, and then onto the xy plane
+    let p = v.xy * (1.0 / (abs(v.x) + abs(v.y) + abs(v.z)))
+
+    // Reflect the folds of the lower hemisphere over the diagonals
+    return if v.z <= 0.0 => (1.0 - abs(p.yx)) * sign_not_zero(p) else p
+
+// Get a float3 normal from an oct representation
+fun oct_to_float32x3(e: float2) -> float3:
+    let mut v = float3(..e.xy, 1.0 - abs(e.x) - abs(e.y))
+    if v.z < 0.0:
+        v.xy = (1.0 - abs(v.yx)) * sign_not_zero(v.xy)
+
+    return normalize(v)
+
+fun signed_normal_encode_to_oct(normal: float3) => snorm12x2_to_unorm8x3(float32x3_to_oct(normal))
+
+fun signed_normal_decode_from_oct(normal: float3) => oct_to_float32x3(unorm8x3_to_snorm12x2(normal))
+
+fun normal_encode(normal: float3) -> float3:
+    if ne_use_octahedral_representation:
+        return signed_normal_encode_to_oct(normal)
+    else:
+        return normal * 0.5 + 0.5
+
+fun normal_decode(normal: float3) -> float3:
+    if ne_use_octahedral_representation:
+        return signed_normal_decode_from_oct(normal)
+    else:
+        return normal * 2.0 - 1.0
+
+// http://www.thetenthplanet.de/archives/1180
+// "followup: normal mapping without precomputed tangents"
+fun cotangent_frame(n: float3, p: float3, uv: float2) -> mat3:
+    // get edge vectors of the pixel triangle
+    let dp1 = ddx(p)
+    let dp2 = ddy(p)
+    let duv1 = ddx(uv)
+    let duv2 = ddy(uv)
+
+    // solve the linear system
+    let dp2perp = cross(dp2, n)
+    let dp1perp = cross(n, dp1)
+    let t = dp2perp * duv1.x + dp1perp * duv2.x
+    let b = dp2perp * duv1.y + dp1perp * duv2.y
+
+    // construct a scale-invariant frame
+    let inv_max = inverse_sqrt(max(dot(t, t), dot(b, b)))
+    return mat3(t * inv_max, b * inv_max, n)
+
+@pixel fun main(p: varyings){material} -> target:
+    let albedo = to_linear(material.albedo.sample(p.texcoord0, material.s_tex).xyz)
+
+    // get vertex normal
+    let normal = normalize(p.normal)
+
+    // get normal map normal, unpack, and calculate z
+    let mut normal_map = float3(0.0)
+    normal_map.xy = material.normal.sample(p.texcoord0, material.s_tex).xy
+    normal_map.xy = normal_map.xy * 2.0 - 1.0
+    normal_map.z = sqrt(1.0 - dot(normal_map.xy, normal_map.xy))
+
+    // swap x and y, because the brick texture looks flipped, don't copy this...
+    normal_map.xy = normal_map.yx
+
+    // perturb geometry normal by normal map
+    // contains world space pos
+    let pos = p.texcoord1.xyz
+    let tbn = cotangent_frame(normal, pos, p.texcoord0)
+    let bumped_normal = normalize(tbn * normal_map)
+
+    // need some proxy for roughness value w/o roughness texture
+    // assume horizontal (blue) normal map is smooth, and then
+    // modulate with albedo for some higher frequency detail
+    let mut roughness = normal_map.z * mix(0.9, 1.0, albedo.y)
+    roughness = roughness * 0.6 + 0.2
+
+    let buffer_normal = normal_encode(bumped_normal)
+
+    return {
+        albedo = float4(..to_gamma(albedo), 1.0)
+        normal = float4(..buffer_normal, roughness)
+    }

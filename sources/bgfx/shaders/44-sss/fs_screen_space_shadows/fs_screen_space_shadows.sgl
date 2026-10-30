@@ -1,0 +1,126 @@
+// Translated to SGL from bgfx examples/44-sss/fs_screen_space_shadows.sc and parameters.sh.
+// Copyright 2021 elven cache. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding view:
+    view_texel: float4
+
+// bgfx's u_params[12], one member per define of parameters.sh
+binding params:
+    frame_idx: float
+    shadow_radius: float
+    shadow_steps: float
+    use_noise_offset: float
+    depth_unpack_consts: float2
+    contact_shadows_mode: float
+    use_screen_space_radius: float
+    ndc_to_view_mul: float2
+    ndc_to_view_add: float2
+    light_position: float3
+    display_shadows: float
+    world_to_view0: float4
+    world_to_view1: float4
+    world_to_view2: float4
+    world_to_view3: float4
+    view_to_proj0: float4
+    view_to_proj1: float4
+    view_to_proj2: float4
+    view_to_proj3: float4
+
+binding input:
+    depth: texture_2d[float4]
+    sampler s_tex:
+        filter = .linear
+
+struct varyings:
+    @position position: hpos4
+    texcoord0: float2
+
+@pixel struct target:
+    color: float4
+
+const depth_epsilon = 1e-4
+
+// from assao sample, cs_assao_prepare_depths.sc
+fun ndc_to_viewspace(pos: float2, viewspace_depth: float){params} -> float3:
+    let mut ret = float3(0.0)
+
+    ret.xy = (params.ndc_to_view_mul * pos.xy + params.ndc_to_view_add) * viewspace_depth
+
+    ret.z = viewspace_depth
+
+    return ret
+
+fun shadertoy_noise(uv: float2) => fract(sin(dot(uv.xy, float2(12.9898, 78.233))) * 43758.5453123)
+
+@pixel fun main(p: varyings){view, params, input} -> target:
+    let tex_coord = p.texcoord0
+    let linear_depth = input.depth.sample(tex_coord, input.s_tex).x
+    let view_space_position = ndc_to_viewspace(tex_coord, linear_depth)
+
+    let mut light_step = normalize(params.light_position - view_space_position)
+
+    // screen space radius not usable directly. convert value given in pixels,
+    // to world units. this is important later when comparing depth in world units
+    let mut radius = params.shadow_radius
+    if 0.0 < params.use_screen_space_radius:
+        // is there a better way to do this calculation?
+        let radius_tex_coord_x = params.shadow_radius * view.view_texel.x + tex_coord.x
+        let radius_position_x = params.ndc_to_view_mul.x * radius_tex_coord_x + params.ndc_to_view_add.x
+        radius = abs(radius_position_x * linear_depth - view_space_position.x)
+    light_step *= radius / params.shadow_steps
+
+    let mut sample_position = view_space_position
+    let random = shadertoy_noise(p.position.xy + float2(314.0, 159.0) * params.frame_idx)
+    let initial_offset = if 0.0 < params.use_noise_offset => 0.5 + random else 1.0
+    sample_position += initial_offset * light_step
+
+    let view_to_proj = mat4(
+        params.view_to_proj0
+        params.view_to_proj1
+        params.view_to_proj2
+        params.view_to_proj3
+    )
+
+    let mut occluded = 0.0
+    let mut soft_occluded = 0.0
+    let mut first_hit = params.shadow_steps
+    for i in 0 ..< (params.shadow_steps as int):
+        let mut ps_sample_position = (view_to_proj * float4(..sample_position, 1.0)).xyw
+        ps_sample_position.xy *= 1.0 / ps_sample_position.z
+
+        let mut sample_coord = ps_sample_position.xy * 0.5 + 0.5
+        sample_coord.y = 1.0 - sample_coord.y
+
+        // using texture2Dlod because dx9 compiler doesn't like
+        // gradient instructions within this loop
+        let sample_depth = input.depth.sample(sample_coord, input.s_tex, level = 0.0).x
+
+        let delta = sample_position.z - sample_depth
+        if depth_epsilon < delta < radius:
+            first_hit = min(first_hit, i as float)
+            // for hard, soft occlusion
+            occluded += 1.0
+            // for very soft occlusion
+            soft_occluded += saturate(radius - delta)
+
+        sample_position += light_step
+
+    let mut shadow = 0.0
+    if 1.5 < params.contact_shadows_mode:
+        // very soft occlusion, includes distance falloff above
+        shadow = soft_occluded * (1.0 - (first_hit / params.shadow_steps))
+        shadow = 1.0 - saturate(shadow)
+        shadow = shadow * shadow
+    else if 0.5 < params.contact_shadows_mode:
+        // soft occlusion
+        shadow = occluded * (1.0 - (first_hit / params.shadow_steps))
+        shadow = 1.0 - saturate(shadow)
+        shadow = shadow * shadow
+    else:
+        // == 0
+        // hard occlusion
+        shadow = if 0.0 < occluded => 0.0 else 1.0
+
+    return {
+        color = float4(shadow)
+    }

@@ -1,0 +1,30 @@
+// Translated to SGL from bgfx examples/21-deferred/fs_deferred_combine_ta.sc.
+// Copyright 2011-2026 Branimir Karadzic. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding material:
+    albedo: texture_2d_array[float4]
+    light: texture_2d[float4]
+    sampler s_tex:
+        filter = .linear
+
+struct varyings:
+    @position position: hpos4
+    texcoord0: float2
+
+@pixel struct target:
+    color: float4
+
+fun to_linear(rgb: float3) => pow(abs(rgb), float3(2.2))
+
+fun to_linear(rgba: float4) => float4(..to_linear(rgba.xyz), rgba.w)
+
+fun to_gamma(rgb: float3) => pow(abs(rgb), float3(1.0 / 2.2))
+
+fun to_gamma(rgba: float4) => float4(..to_gamma(rgba.xyz), rgba.w)
+
+@pixel fun main(p: varyings){material} -> target:
+    let albedo = to_linear(material.albedo.sample(p.texcoord0, material.s_tex, layer = 0))
+    let light = to_linear(material.light.sample(p.texcoord0, material.s_tex))
+    return {
+        color = to_gamma(albedo * light)
+    }

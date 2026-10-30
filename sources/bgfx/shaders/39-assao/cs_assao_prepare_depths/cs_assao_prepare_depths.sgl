@@ -1,0 +1,78 @@
+// Translated to SGL from bgfx examples/39-assao/cs_assao_prepare_depths.sc.
+// Copyright 2018 Attila Kocsis. BSD-2-Clause: sources/bgfx/LICENSE.
+
+// the depth format of uniforms.sh, r16f, is outside the portable image formats
+require extended_image_formats
+
+// bgfx's u_params[19], one member per define of uniforms.sh, and u_rect
+binding params:
+    viewport_pixel_size: float2
+    half_viewport_pixel_size: float2
+    depth_unpack_consts: float2
+    unused1: float2
+    ndc_to_view_mul: float2
+    ndc_to_view_add: float2
+    per_pass_full_res_coord_offset: float2
+    per_pass_full_res_uv_offset: float2
+    viewport_2x_pixel_size: float2
+    viewport_2x_pixel_size_x_025: float2
+    effect_radius: float
+    effect_shadow_strength: float
+    effect_shadow_pow: float
+    effect_shadow_clamp: float
+    effect_fade_out_mul: float
+    effect_fade_out_add: float
+    effect_horizon_angle_threshold: float
+    effect_sampling_radius_near_limit_rec: float
+    depth_precision_offset_mod: float
+    neg_rec_effect_radius: float
+    load_counter_avg_div: float
+    adaptive_sample_count_limit: float
+    inv_sharpness: float
+    pass_index: float
+    quarter_res_pixel_size: float2
+    pattern_rot_scale_matrices: float4[5]
+    normals_unpack_mul: float
+    normals_unpack_add: float
+    detail_ao_strength: float
+    layer: float
+    normals_world_to_viewspace_matrix0: float4
+    normals_world_to_viewspace_matrix1: float4
+    normals_world_to_viewspace_matrix2: float4
+    normals_world_to_viewspace_matrix3: float4
+    rect: float4
+
+binding depths:
+    depth_source: texture_2d[float4]
+    target0: out image_2d[.r16_float]
+    target1: out image_2d[.r16_float]
+    target2: out image_2d[.r16_float]
+    target3: out image_2d[.r16_float]
+
+fun screen_space_to_view_space_depth(screen_depth: float){params} -> float:
+    let depth_linearize_mul = params.depth_unpack_consts.x
+    let depth_linearize_add = params.depth_unpack_consts.y
+
+    // Optimised version of "-cameraClipNear / (cameraClipFar - projDepth * (cameraClipFar - cameraClipNear)) * cameraClipFar"
+
+    // Set your depthLinearizeMul and depthLinearizeAdd to:
+    // depthLinearizeMul = ( cameraClipFar * cameraClipNear) / ( cameraClipFar - cameraClipNear );
+    // depthLinearizeAdd = cameraClipFar / ( cameraClipFar - cameraClipNear );
+
+    return depth_linearize_mul / (depth_linearize_add - screen_depth)
+
+@compute(8, 8, 1) fun main(@thread_id id: int3){params, depths}:
+    let dt_id = id.xy as uint2
+
+    let dim = depths.target0.size() as uint2
+    if all(dt_id < dim):
+        let base_coord = (dt_id as int2) * 2
+        let a = depths.depth_source.load(base_coord + int2(0, 0), 0).x
+        let b = depths.depth_source.load(base_coord + int2(1, 0), 0).x
+        let c = depths.depth_source.load(base_coord + int2(0, 1), 0).x
+        let d = depths.depth_source.load(base_coord + int2(1, 1), 0).x
+
+        depths.target0[dt_id as int2] = screen_space_to_view_space_depth(a)
+        depths.target1[dt_id as int2] = screen_space_to_view_space_depth(b)
+        depths.target2[dt_id as int2] = screen_space_to_view_space_depth(c)
+        depths.target3[dt_id as int2] = screen_space_to_view_space_depth(d)

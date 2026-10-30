@@ -1,0 +1,15 @@
+// Translated to SGL from bgfx examples/53-sky2/vs_sky2_bg.sc.
+// Copyright 2026 Mateusz Kozdrowicki. BSD-2-Clause: sources/bgfx/LICENSE.
+
+@vertex struct vertex_input:
+    position: float3
+
+struct varyings:
+    @position position: hpos4
+    texcoord0: float2
+
+@vertex fun main(v: vertex_input) -> varyings:
+    return {
+        position = hpos4(..v.position.xy, 1.0, 1.0)
+        texcoord0 = v.position.xy
+    }

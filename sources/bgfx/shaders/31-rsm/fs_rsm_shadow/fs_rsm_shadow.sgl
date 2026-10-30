@@ -1,0 +1,23 @@
+// Translated to SGL from bgfx examples/31-rsm/fs_rsm_shadow.sc.
+// Copyright 2016 Joseph Cherlin. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding view:
+    view_texel: float4
+
+binding params:
+    tint: float4
+
+struct varyings:
+    @position position: hpos4
+    normal: float3
+
+@pixel struct target:
+    // xyz is the color of the light sphere, w its radius
+    rsm: float4
+
+@pixel fun main(p: varyings){view, params} -> target:
+    let tex_coord = p.position.xy * view.view_texel.xy
+
+    return {
+        rsm = float4(..params.tint.xyz, -p.normal.z)
+    }

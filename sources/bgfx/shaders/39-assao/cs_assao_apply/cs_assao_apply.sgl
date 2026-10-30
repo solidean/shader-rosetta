@@ -1,0 +1,116 @@
+// Translated to SGL from bgfx examples/39-assao/cs_assao_apply.sc.
+// Copyright 2018 Attila Kocsis. BSD-2-Clause: sources/bgfx/LICENSE.
+
+// the ao format of uniforms.sh, r8, is outside the portable image formats
+require extended_image_formats
+
+// bgfx's u_params[19], one member per define of uniforms.sh, and u_rect
+binding params:
+    viewport_pixel_size: float2
+    half_viewport_pixel_size: float2
+    depth_unpack_consts: float2
+    unused1: float2
+    ndc_to_view_mul: float2
+    ndc_to_view_add: float2
+    per_pass_full_res_coord_offset: float2
+    per_pass_full_res_uv_offset: float2
+    viewport_2x_pixel_size: float2
+    viewport_2x_pixel_size_x_025: float2
+    effect_radius: float
+    effect_shadow_strength: float
+    effect_shadow_pow: float
+    effect_shadow_clamp: float
+    effect_fade_out_mul: float
+    effect_fade_out_add: float
+    effect_horizon_angle_threshold: float
+    effect_sampling_radius_near_limit_rec: float
+    depth_precision_offset_mod: float
+    neg_rec_effect_radius: float
+    load_counter_avg_div: float
+    adaptive_sample_count_limit: float
+    inv_sharpness: float
+    pass_index: float
+    quarter_res_pixel_size: float2
+    pattern_rot_scale_matrices: float4[5]
+    normals_unpack_mul: float
+    normals_unpack_add: float
+    detail_ao_strength: float
+    layer: float
+    normals_world_to_viewspace_matrix0: float4
+    normals_world_to_viewspace_matrix1: float4
+    normals_world_to_viewspace_matrix2: float4
+    normals_world_to_viewspace_matrix3: float4
+    rect: float4
+
+binding ssao:
+    target: out image_2d[.r8_unorm]
+    final_ssao: texture_2d_array[float4]
+    sampler s_final_ssao:
+        filter = .linear
+
+// unpacking for edges; 2 bits per edge mean 4 gradient values (0, 0.33, 0.66, 1) for smoother transitions!
+fun unpack_edges(packed_val_in: float){params} -> float4:
+    let packed_val = (packed_val_in * 255.5) as uint
+    // there's really no need for mask (as it's an 8 bit input) but I'll leave it in so it doesn't cause any trouble in the future
+    let edges_lrtb = float4(
+        (((packed_val >> 6u) & 0x03u) as float) / 3.0
+        (((packed_val >> 4u) & 0x03u) as float) / 3.0
+        (((packed_val >> 2u) & 0x03u) as float) / 3.0
+        (((packed_val >> 0u) & 0x03u) as float) / 3.0
+    )
+
+    return saturate(edges_lrtb + params.inv_sharpness)
+
+@compute(8, 8, 1) fun main(@thread_id id: int3){params, ssao}:
+    let dt_id = (id.xy as uint2) + (params.rect.xy as uint2)
+    if all(dt_id < (params.rect.zw as uint2)):
+        let pix_pos = dt_id
+        let pix_pos_half = pix_pos / uint2(2u, 2u)
+
+        // calculate index in the four deinterleaved source array texture
+        let mx = (pix_pos.x as int) % 2
+        let my = (pix_pos.y as int) % 2
+        // center index
+        let ic = mx + my * 2
+        // neighbouring, horizontal
+        let ih = (1 - mx) + my * 2
+        // neighbouring, vertical
+        let iv = mx + (1 - my) * 2
+        // diagonal
+        let id_diagonal = (1 - mx) + (1 - my) * 2
+
+        let center_val = ssao.final_ssao.load(pix_pos_half as int2, 0, layer = ic).xy
+
+        let mut ao = center_val.x
+
+        let edges_lrtb = unpack_edges(center_val.y)
+
+        // convert index shifts to sampling offsets
+        let fmx = mx as float
+        let fmy = my as float
+
+        // in case of an edge, push sampling offsets away from the edge (towards pixel center)
+        let fmxe = edges_lrtb.y - edges_lrtb.x
+        let fmye = edges_lrtb.w - edges_lrtb.z
+
+        // calculate final sampling offsets and sample using bilinear filter
+        let uv_h = ((dt_id as float2) + float2(fmx + fmxe - 0.5, 0.5 - fmy)) * 0.5 * params.half_viewport_pixel_size
+        let ao_h = ssao.final_ssao.sample(uv_h, ssao.s_final_ssao, layer = ih, level = 0.0).x
+        let uv_v = ((dt_id as float2) + float2(0.5 - fmx, fmy - 0.5 + fmye)) * 0.5 * params.half_viewport_pixel_size
+        let ao_v = ssao.final_ssao.sample(uv_v, ssao.s_final_ssao, layer = iv, level = 0.0).x
+        let uv_d = ((dt_id as float2) + float2(fmx - 0.5 + fmxe, fmy - 0.5 + fmye)) * 0.5 * params.half_viewport_pixel_size
+        let ao_d = ssao.final_ssao.sample(uv_d, ssao.s_final_ssao, layer = id_diagonal, level = 0.0).x
+
+        // reduce weight for samples near edge - if the edge is on both sides, weight goes to 0
+        let mut blend_weights = float4(1.0, 0.0, 0.0, 0.0)
+        blend_weights.y = (edges_lrtb.x + edges_lrtb.y) * 0.5
+        blend_weights.z = (edges_lrtb.z + edges_lrtb.w) * 0.5
+        blend_weights.w = (blend_weights.y + blend_weights.z) * 0.5
+
+        // calculate weighted average
+        let blend_weights_sum = dot(blend_weights, float4(1.0, 1.0, 1.0, 1.0))
+        ao = dot(float4(ao, ao_h, ao_v, ao_d), blend_weights) / blend_weights_sum
+
+        ao = pow(ao, 1.0 / 2.2)
+
+        ssao.target[dt_id as int2] = ao

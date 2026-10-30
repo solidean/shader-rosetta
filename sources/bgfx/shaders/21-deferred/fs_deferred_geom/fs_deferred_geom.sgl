@@ -1,0 +1,41 @@
+// Translated to SGL from bgfx examples/21-deferred/fs_deferred_geom.sc.
+// Copyright 2011-2026 Branimir Karadzic. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding view:
+    inv_view: mat4
+
+binding material:
+    tex_color: texture_2d[float4]
+    tex_normal: texture_2d[float4]
+    sampler s_tex:
+        filter = .linear
+
+struct varyings:
+    @position position: hpos4
+    texcoord0: float2
+    wpos: float3
+    view: float3
+    normal: vec3
+    tangent: vec3
+    bitangent: vec3
+
+@pixel struct target:
+    albedo: float4
+    normal: float4
+
+fun encode_normal_uint(normal: float3) => normal * 0.5 + 0.5
+
+@pixel fun main(p: varyings){view, material} -> target:
+    let nxy = material.tex_normal.sample(p.texcoord0, material.s_tex).xy * 2.0 - 1.0
+    let normal = vec3(..nxy, sqrt(1.0 - dot(nxy, nxy)))
+
+    let tbn = mat3(normalize(p.tangent), normalize(p.bitangent), normalize(p.normal))
+
+    let normal = normalize(tbn * normal)
+
+    let wnormal = normalize(view.inv_view * normal)
+
+    return {
+        albedo = material.tex_color.sample(p.texcoord0, material.s_tex)
+        normal = float4(..encode_normal_uint(float3(..wnormal)), 1.0)
+    }

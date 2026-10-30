@@ -1,0 +1,25 @@
+// Translated to SGL from bgfx examples/39-assao/fs_assao_gbuffer.sc.
+// Copyright 2018 Attila Kocsis. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding material:
+    albedo: texture_2d[float4]
+    sampler s_albedo:
+        filter = .linear
+
+struct varyings:
+    @position position: hpos4
+    normal: float3
+    texcoord0: float2
+
+@pixel struct target:
+    normal: float4
+    color: float4
+
+@pixel fun main(p: varyings){material} -> target:
+    let normal_world_space = p.normal
+
+    return {
+        // normal is already compressed to [0,1] so can fit in gbuffer
+        normal = float4(..normal_world_space.xyz, 0.0)
+        color = material.albedo.sample(p.texcoord0, material.s_albedo)
+    }

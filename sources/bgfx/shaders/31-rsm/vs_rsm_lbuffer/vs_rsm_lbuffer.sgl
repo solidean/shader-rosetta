@@ -1,0 +1,61 @@
+// Translated to SGL from bgfx examples/31-rsm/vs_rsm_lbuffer.sc.
+// Copyright 2016 Joseph Cherlin. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding view:
+    view_proj: mat4
+
+binding params:
+    sphere_info: float4
+    inv_mvp_shadow: mat4
+
+binding maps:
+    // Used to reconstruct 3d position for lights
+    shadow_map: texture_2d[float4]
+    // Reflective shadow map, used to scale/color light
+    rsm: texture_2d[float4]
+    sampler s_tex:
+        filter = .linear
+
+@vertex struct vertex_input:
+    position: float3
+
+struct varyings:
+    @position position: hpos4
+    // xyz is position, w is scale
+    light_center_scale: float4
+    color0: float4
+
+// shaderlib.sh, on every target but GLSL, whose depth range bgfx's u_ndc remaps
+fun to_clip_space_depth(depth_texture_z: float) => depth_texture_z
+
+fun to_clip_space_y(y: float) => -y
+
+fun clip_to_world(inv_view_proj: mat4, clip_pos: float3) -> float3:
+    let wpos = inv_view_proj * float4(..clip_pos, 1.0)
+    return wpos.xyz / wpos.w
+
+@vertex fun main(v: vertex_input){view, params, maps} -> varyings:
+    // Calculate vertex position
+    let object_space_pos = v.position
+    let tex_coord = params.sphere_info.xy
+
+    // Get world position using the shadow map
+    let device_depth = maps.shadow_map.sample(tex_coord, maps.s_tex, level = 0.0).x
+    let depth = to_clip_space_depth(device_depth)
+    let mut clip = float3(..(tex_coord * 2.0 - 1.0), depth)
+    clip.y = to_clip_space_y(clip.y)
+    let mut w_pos = clip_to_world(params.inv_mvp_shadow, clip)
+    // Would be much better to perturb in normal direction, but I didn't do that.
+    w_pos.y -= 0.001
+
+    // Scale and color are already in the rsm
+    let rsm = maps.rsm.sample(tex_coord, maps.s_tex, level = 0.0)
+    let rad_scale = params.sphere_info.z
+    let rad = rsm.w * rad_scale
+
+    return {
+        position = view.view_proj * pos3(..(w_pos + object_space_pos * rad))
+        light_center_scale = float4(..w_pos, rad)
+        // varying.def.sc's default fills w
+        color0 = float4(..rsm.xyz, 1.0)
+    }

@@ -1,0 +1,34 @@
+// Translated to SGL from bgfx examples/39-assao/vs_assao_gbuffer.sc.
+// Copyright 2018 Attila Kocsis. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding view:
+    model_view_proj: mat4
+    model: mat4
+
+@vertex struct vertex_input:
+    position: pos3
+    normal: float3
+    texcoord0: float2
+
+struct varyings:
+    @position position: hpos4
+    normal: float3
+    texcoord0: float2
+
+@vertex fun main(v: vertex_input){view} -> varyings:
+    // calculate vertex position
+    let pos = v.position
+
+    // calculate normal; note that compressed normal is stored in the vertices
+    // normal is stored in [0,1], remap to [-1,1]
+    let normal_object_space = vec3(..(v.normal * 2.0 + -1.0))
+
+    // transform normal into world space
+    let normal_world_space = view.model * normal_object_space
+
+    return {
+        position = view.model_view_proj * pos
+        // normalize to remove (uniform...) scaling, however, recompress
+        normal = float3(..normalize(normal_world_space)) * 0.5 + 0.5
+        texcoord0 = v.texcoord0 * 16.0
+    }

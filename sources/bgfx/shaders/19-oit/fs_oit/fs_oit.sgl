@@ -1,0 +1,17 @@
+// Translated to SGL from bgfx examples/19-oit/fs_oit.sc.
+// Copyright 2011-2026 Branimir Karadzic. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding params:
+    color: float4
+
+struct varyings:
+    @position position: hpos4
+    pos: float4
+
+@pixel struct target:
+    color: float4
+
+@pixel fun main(p: varyings){params} -> target:
+    return {
+        color = params.color
+    }

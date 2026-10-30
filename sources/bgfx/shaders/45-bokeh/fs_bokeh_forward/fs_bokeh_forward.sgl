@@ -1,0 +1,85 @@
+// Translated to SGL from bgfx examples/45-bokeh/fs_bokeh_forward.sc.
+// Copyright 2021 elven cache. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding material:
+    albedo: texture_2d[float4]
+    normal: texture_2d[float4]
+    sampler s_tex:
+        filter = .linear
+
+// bgfx's u_modelParams[2], one member per define
+binding model_params:
+    color: float3
+    light_position: float3
+
+struct varyings:
+    @position position: hpos4
+    normal: float3
+    texcoord0: float2
+    texcoord1: float4
+    texcoord2: float4
+
+@pixel struct target:
+    color: float4
+
+// shaderlib.sh
+fun to_linear(rgb: float3) => pow(abs(rgb), float3(2.2))
+
+// http://www.thetenthplanet.de/archives/1180
+// "followup: normal mapping without precomputed tangents"
+fun cotangent_frame(n: vec3, p: float3, uv: float2) -> mat3:
+    // get edge vectors of the pixel triangle
+    let dp1 = vec3(..ddx(p))
+    let dp2 = vec3(..ddy(p))
+    let duv1 = ddx(uv)
+    let duv2 = ddy(uv)
+
+    // solve the linear system
+    let dp2perp = cross(dp2, n)
+    let dp1perp = cross(n, dp1)
+    let t = dp2perp * duv1.x + dp1perp * duv2.x
+    let b = dp2perp * duv1.y + dp1perp * duv2.y
+
+    // construct a scale-invariant frame
+    let inv_max = inverse_sqrt(max(dot(t, t), dot(b, b)))
+    return mat3(t * inv_max, b * inv_max, n)
+
+@pixel fun main(p: varyings){material, model_params} -> target:
+    let albedo = to_linear(material.albedo.sample(p.texcoord0, material.s_tex).xyz)
+
+    // get vertex normal
+    let normal = normalize(vec3(..p.normal))
+
+    // get normal map normal, unpack, and calculate z
+    let normal_map_xy = material.normal.sample(p.texcoord0, material.s_tex).xy * 2.0 - 1.0
+    let mut normal_map = float3(..normal_map_xy, sqrt(1.0 - dot(normal_map_xy, normal_map_xy)))
+
+    // swap x and y, because the brick texture looks flipped, don't copy this...
+    normal_map.xy = -normal_map.yx
+
+    // perturb geometry normal by normal map
+    // contains world space pos
+    let pos = p.texcoord1.xyz
+    let tbn = cotangent_frame(normal, pos, p.texcoord0)
+    let bumped_normal = normalize(tbn * vec3(..normal_map))
+
+    let light = normalize(vec3(..(model_params.light_position - pos)))
+
+    let ndotl = saturate(dot(bumped_normal, light))
+    let diffuse = ndotl * 1.0
+
+    // contains view vector
+    let v = vec3(..p.texcoord2.xyz)
+    let h = normalize(v + light)
+    let ndoth = saturate(dot(bumped_normal, h))
+    let specular = 5.0 * pow(ndoth, 256.0)
+    let ambient = 0.1
+
+    let light_amount = ambient + diffuse
+    let color = model_params.color * albedo * light_amount + specular
+
+    // leave color in linear space for better dof filter result
+
+    return {
+        color = float4(..color, 1.0)
+    }

@@ -1,0 +1,61 @@
+// Translated to SGL from bgfx examples/31-rsm/fs_rsm_lbuffer.sc.
+// Copyright 2016 Joseph Cherlin. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding view:
+    view_texel: float4
+
+binding params:
+    inv_mvp: mat4
+
+binding gbuffer:
+    // Normal output from gbuffer
+    normal: texture_2d[float4]
+    // Depth output from gbuffer
+    depth: texture_2d[float4]
+    sampler s_tex:
+        filter = .linear
+
+struct varyings:
+    @position position: hpos4
+    // xyz is position, w is scale
+    light_center_scale: float4
+    color0: float4
+
+@pixel struct target:
+    color: float4
+
+// shaderlib.sh, on every target but GLSL, whose depth range bgfx's u_ndc remaps
+fun to_clip_space_depth(depth_texture_z: float) => depth_texture_z
+
+fun to_clip_space_y(y: float) => -y
+
+fun clip_to_world(inv_view_proj: mat4, clip_pos: float3) -> float3:
+    let wpos = inv_view_proj * float4(..clip_pos, 1.0)
+    return wpos.xyz / wpos.w
+
+@pixel fun main(p: varyings){view, params, gbuffer} -> target:
+    let tex_coord = p.position.xy * view.view_texel.xy
+
+    // Get world position
+    let device_depth = gbuffer.depth.sample(tex_coord, gbuffer.s_tex).x
+    let depth = to_clip_space_depth(device_depth)
+
+    let mut clip = float3(..(tex_coord * 2.0 - 1.0), depth)
+    clip.y = to_clip_space_y(clip.y)
+    let wpos = clip_to_world(params.inv_mvp, clip)
+
+    // Get normal from its map, and decompress
+    let n = gbuffer.normal.sample(tex_coord, gbuffer.s_tex).xyz * 2.0 - 1.0
+
+    // Do lighting
+    let point_to_light = p.light_center_scale.xyz - wpos
+    let light_len = sqrt(dot(point_to_light, point_to_light))
+
+    // Linear falloff for light (could use dist sq if you want)
+    let light_falloff = if light_len > p.light_center_scale.w => 0.0 else 1.0 - (light_len / p.light_center_scale.w)
+
+    let l = normalize(point_to_light) * light_falloff
+
+    return {
+        color = float4(..(p.color0.xyz * max(0.0, dot(n, l))), 1.0)
+    }

@@ -1,0 +1,54 @@
+// Translated to SGL from bgfx examples/45-bokeh/fs_bokeh_dof_downsample.sc, with parameters.sh and bokeh_dof.sh.
+// Copyright 2021 elven cache. BSD-2-Clause: sources/bgfx/LICENSE.
+
+// bgfx's u_params[13], one member per define of parameters.sh
+binding params:
+    depth_unpack_consts: float2
+    frame_idx: float
+    lobe_rotation: float
+    ndc_to_view_mul: float2
+    ndc_to_view_add: float2
+    blur_steps: float
+    // u_samplePattern names this lane too
+    lobe_count: float
+    lobe_radius_min: float
+    lobe_radius_delta2x: float
+    max_blur_size: float
+    focus_point: float
+    focus_scale: float
+    radius_scale: float
+
+binding material:
+    color: texture_2d[float4]
+    depth: texture_2d[float4]
+    sampler s_tex:
+        filter = .linear
+
+struct varyings:
+    @position position: hpos4
+    texcoord0: float2
+
+@pixel struct target:
+    color: float4
+
+// ---- bokeh_dof.sh ----
+
+fun get_circle_of_confusion(depth: float, focus_point: float, focus_scale: float) -> float:
+    // if depth is less than focusPoint, result will be negative. want to keep this
+    // relationship so comparison of (signed) blur size is same as comparing depth.
+    return clamp((1.0 / focus_point - 1.0 / depth) * focus_scale, -1.0, 1.0)
+
+fun get_blur_size(depth: float, focus_point: float, focus_scale: float){params} -> float:
+    let circle_of_confusion = get_circle_of_confusion(depth, focus_point, focus_scale)
+    return circle_of_confusion * params.max_blur_size
+
+@pixel fun main(p: varyings){params, material} -> target:
+    let tex_coord = p.texcoord0.xy
+
+    let color = material.color.sample(tex_coord, material.s_tex).xyz
+    let depth = material.depth.sample(tex_coord, material.s_tex).x
+    let blur_size = get_blur_size(depth, params.focus_point, params.focus_scale)
+
+    return {
+        color = float4(..color, blur_size)
+    }

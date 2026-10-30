@@ -1,0 +1,84 @@
+// Translated to SGL from bgfx examples/21-deferred/fs_deferred_light_uav.sc.
+// Copyright 2011-2026 Branimir Karadzic. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding view:
+    view: mat4
+
+binding gbuffer:
+    require readwrite_image_formats
+    normal: texture_2d[float4]
+    depth: texture_2d_depth
+    light: mut image_2d[.rgba8_unorm]
+    sampler s_tex:
+        filter = .linear
+    sampler s_depth:
+        filter = .nearest
+
+binding lights:
+    light_pos_radius: float4[1]
+    light_rgb_inner_r: float4[1]
+    mtx: mat4
+
+struct varyings:
+    @position position: hpos4
+    texcoord0: float2
+
+fun blinn(light_dir: float3, normal: float3, view_dir: float3) -> float2:
+    let ndotl = dot(normal, light_dir)
+    // reflect(light_dir, normal)
+    let reflected = light_dir - 2.0 * ndotl * normal
+    let rdotv = dot(reflected, view_dir)
+    return float2(ndotl, rdotv)
+
+fun lit(ndotl: float, rdotv: float, m: float) -> float4:
+    let diff = max(0.0, ndotl)
+    let spec = step(0.0, ndotl) * max(0.0, rdotv * m)
+    return float4(1.0, diff, spec, 1.0)
+
+fun calc_light(wpos: float3, normal: float3, view: float3, light_pos: float3, light_radius: float, light_rgb: float3, light_inner: float) -> float3:
+    let lp = light_pos - wpos
+    let attn = 1.0 - smoothstep(light_inner, 1.0, length(lp) / light_radius)
+    let light_dir = normalize(lp)
+    let bln = blinn(light_dir, normal, view)
+    let lc = lit(bln.x, bln.y, 1.0)
+    return light_rgb * saturate(lc.y) * attn
+
+fun decode_normal_uint(encoded_normal: float3) => encoded_normal * 2.0 - 1.0
+
+// bgfx's branch for every language but GLSL: SGL's targets all have a zero-to-one depth range
+fun to_clip_space_depth(depth_texture_z: float) => depth_texture_z
+
+// bgfx's branch for every language but GLSL: texture space runs down where clip space runs up
+fun to_clip_space_y(y: float) => -y
+
+fun clip_to_world(inv_view_proj: mat4, clip_pos: float3) -> float3:
+    let wpos = inv_view_proj * float4(..clip_pos, 1.0)
+    return wpos.xyz / wpos.w
+
+fun to_gamma(rgb: float3) => pow(abs(rgb), float3(1.0 / 2.2))
+
+// gap: a pixel stage that writes only an image and no target has no spelling, since CHK-91 asks every @pixel fun to return a @pixel struct
+@pixel fun main(p: varyings){view, gbuffer, lights}:
+    let normal = decode_normal_uint(gbuffer.normal.sample(p.texcoord0, gbuffer.s_tex).xyz)
+    let device_depth = gbuffer.depth.sample(p.texcoord0, gbuffer.s_depth)
+    let depth = to_clip_space_depth(device_depth)
+
+    let mut clip = float3(..(p.texcoord0 * 2.0 - 1.0), depth)
+    clip.y = to_clip_space_y(clip.y)
+    let wpos = clip_to_world(lights.mtx, clip)
+
+    let view_dir = -normalize((view.view * float4(..wpos, 0.0)).xyz)
+
+    let coord = p.position.xy as int2
+
+    let light_color = calc_light(
+        wpos
+        normal
+        view_dir
+        lights.light_pos_radius[0].xyz
+        lights.light_pos_radius[0].w
+        lights.light_rgb_inner_r[0].xyz
+        lights.light_rgb_inner_r[0].w
+    )
+    let color = gbuffer.light[coord]
+    gbuffer.light[coord] = (color + float4(..to_gamma(light_color), 1.0)) as texel[.rgba8_unorm]

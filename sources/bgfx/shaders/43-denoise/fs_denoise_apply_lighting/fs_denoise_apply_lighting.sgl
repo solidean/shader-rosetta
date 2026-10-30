@@ -1,0 +1,59 @@
+// Translated to SGL from bgfx examples/43-denoise/fs_denoise_apply_lighting.sc and parameters.sh.
+// Copyright 2021 elven cache. BSD-2-Clause: sources/bgfx/LICENSE.
+
+// bgfx's u_params[13], one member per define of parameters.sh
+binding params:
+    jitter_curr: float2
+    jitter_prev: float2
+    feedback_min: float
+    feedback_max: float
+    unused1: float2
+    unused2: float
+    apply_mitchell_filter: float
+    unused2zw: float2
+    world_to_view_prev0: float4
+    world_to_view_prev1: float4
+    world_to_view_prev2: float4
+    world_to_view_prev3: float4
+    view_to_proj_prev0: float4
+    view_to_proj_prev1: float4
+    view_to_proj_prev2: float4
+    view_to_proj_prev3: float4
+    frame_idx: float
+    // 0=none, 1=dither, 2=random
+    noise_type: float
+    unused11: float2
+    tex_coord_step: float
+    sigma_depth: float
+    sigma_normal: float
+
+binding input:
+    color: texture_2d[float4]
+    albedo: texture_2d[float4]
+    sampler s_tex:
+        filter = .linear
+
+struct varyings:
+    @position position: hpos4
+    texcoord0: float2
+
+@pixel struct target:
+    color: float4
+
+// shaderlib.sh
+fun to_linear(rgb: float3) => pow(abs(rgb), float3(2.2))
+
+fun to_gamma(rgb: float3) => pow(abs(rgb), float3(1.0 / 2.2))
+
+@pixel fun main(p: varyings){input} -> target:
+    let tex_coord = p.texcoord0
+    let light_color = input.color.sample(tex_coord, input.s_tex).xyz
+    let mut albedo = input.albedo.sample(tex_coord, input.s_tex).xyz
+    albedo = to_linear(albedo)
+
+    let mut color = light_color * albedo
+    color = to_gamma(color)
+
+    return {
+        color = float4(..color, 1.0)
+    }

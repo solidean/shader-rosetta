@@ -1,0 +1,32 @@
+// Translated to SGL from bgfx examples/52-layered/vs_layered.sc.
+// Copyright 2011-2026 Branimir Karadzic. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding view:
+    model_view_proj: mat4
+
+binding params:
+    // x = eye separation
+    eye_params: float4
+
+@vertex struct vertex_input:
+    position: pos3
+    color0: float4
+
+struct varyings:
+    @position position: hpos4
+    color0: float4
+    eye: float
+    // gap: SGL has no vertex output that routes a primitive to a render-target array layer (gl_Layer, SV_RenderTargetArrayIndex), so a flat member stands in
+    @interpolate(.flat) layer: int
+
+@vertex fun main(v: vertex_input, @instance_index instance: int){view, params} -> varyings:
+    let eye_index = instance as float
+
+    let mut pos = view.model_view_proj * v.position
+    pos.x += (eye_index * 2.0 - 1.0) * params.eye_params.x * pos.w
+    return {
+        position = pos
+        color0 = v.color0
+        eye = eye_index
+        layer = instance
+    }

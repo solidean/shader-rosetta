@@ -31,6 +31,10 @@
             "file": "cs_assao_generate_q2.spv",
             "by": "bgfx shaderc b7d0751baa",
             "args": "--type compute --platform linux -p spirv -i ../../src"
+        },
+        "sgl": {
+            "status": "translated",
+            "file": "cs_assao_generate_q2.sgl"
         }
     }
 }

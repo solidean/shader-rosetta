@@ -1,0 +1,39 @@
+// Translated to SGL from bgfx examples/23-vectordisplay/fs_vectordisplay_blur.sc.
+// The original carries no copyright line; bgfx: Copyright 2010-2026 Branimir Karadzic. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding material:
+    tex_color: texture_2d[float4]
+    sampler s_tex:
+        filter = .linear
+
+// bgfx's u_params, one member per define
+binding params:
+    blur_scale: float2
+    compose_mult: float
+    compose_alpha: float
+
+struct varyings:
+    @position position: hpos4
+    texcoord0: float2
+    color0: float4
+
+@pixel struct target:
+    color: float4
+
+@pixel fun main(p: varyings){material, params} -> target:
+    let uv = p.texcoord0
+    let scale = params.blur_scale
+    let mut color = material.tex_color.sample(uv - 4.0 * scale, material.s_tex) * 0.05
+    color += material.tex_color.sample(uv - 3.0 * scale, material.s_tex) * 0.09
+    color += material.tex_color.sample(uv - 2.0 * scale, material.s_tex) * 0.12
+    color += material.tex_color.sample(uv - 1.0 * scale, material.s_tex) * 0.15
+    color += material.tex_color.sample(uv + 0.0 * scale, material.s_tex) * 0.16
+    color += material.tex_color.sample(uv + 1.0 * scale, material.s_tex) * 0.15
+    color += material.tex_color.sample(uv + 2.0 * scale, material.s_tex) * 0.12
+    color += material.tex_color.sample(uv + 3.0 * scale, material.s_tex) * 0.09
+    color += material.tex_color.sample(uv + 4.0 * scale, material.s_tex) * 0.05
+
+    let mult = params.compose_mult
+    return {
+        color = color * float4(mult, mult, mult, mult * params.compose_alpha)
+    }

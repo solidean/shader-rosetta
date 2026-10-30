@@ -1,0 +1,163 @@
+// Translated to SGL from bgfx examples/43-denoise/fs_denoise_spatial_5x5.sc, fs_denoise_spatial_implementation.sh, parameters.sh and normal_encoding.sh.
+// Copyright 2021 elven cache. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding view:
+    view_texel: float4
+
+// bgfx's u_params[13], one member per define of parameters.sh
+binding params:
+    jitter_curr: float2
+    jitter_prev: float2
+    feedback_min: float
+    feedback_max: float
+    unused1: float2
+    unused2: float
+    apply_mitchell_filter: float
+    unused2zw: float2
+    world_to_view_prev0: float4
+    world_to_view_prev1: float4
+    world_to_view_prev2: float4
+    world_to_view_prev3: float4
+    view_to_proj_prev0: float4
+    view_to_proj_prev1: float4
+    view_to_proj_prev2: float4
+    view_to_proj_prev3: float4
+    frame_idx: float
+    // 0=none, 1=dither, 2=random
+    noise_type: float
+    unused11: float2
+    tex_coord_step: float
+    sigma_depth: float
+    sigma_normal: float
+
+binding input:
+    // input color, signal to be denoised
+    color: texture_2d[float4]
+    // scene's gbuffer normal, used for edge stopping function
+    normal: texture_2d[float4]
+    // scene's depth, used for edge stopping function
+    depth: texture_2d[float4]
+    sampler s_tex:
+        filter = .linear
+
+struct varyings:
+    @position position: hpos4
+    texcoord0: float2
+
+@pixel struct target:
+    color: float4
+
+// normal_encoding.sh
+const ne_use_octahedral_representation = false
+
+// From "A Survey of Efficient Representations for Independent Unit Vectors"
+// http://jcgt.org/published/0003/02/01/paper.pdf
+
+// Convert an oct24 (2x12bit normal) to an rgb8 value for storing in texture
+fun snorm12x2_to_unorm8x3(f: float2) -> float3:
+    let f = clamp(f, -1.0, 1.0)
+    let u = floor(f * 2047.0 + 2047.5)
+    let t = floor(u.y / 256.0)
+
+    // "This code assumes that rounding will occur during storage."
+    // -- Not certain but this appears to mainly apply to the x channel.
+    //    From paper: x = u.x / 16.0 - 0.5
+    //    Instead round by +0.5 and floor.
+    return float3(floor(u.x / 16.0), fract(u.x / 16.0) * 256.0 + t, u.y - t * 256.0) / 255.0
+
+// Unpack oct24 (2x12bit normal) from an rgb8 value stored in texture (normal spec)
+fun unorm8x3_to_snorm12x2(u: float3) -> float2:
+    let mut u = u * 255.0
+    u.y *= 1.0 / 16.0
+    let mut s = float2(u.x * 16.0 + floor(u.y), fract(u.y) * (16.0 * 256.0) + u.z)
+
+    s = s * (1.0 / 2047.0) - 1.0
+    return min(max(s, -1.0), 1.0)
+
+// Built in sign test could return 0, don't want that
+fun sign_not_zero(v: float2) => float2(if v.x >= 0.0 => 1.0 else -1.0, if v.y >= 0.0 => 1.0 else -1.0)
+
+// Assume normalized input. Output is (-1, 1) for each component
+fun float32x3_to_oct(v: float3) -> float2:
+    // Project the sphere onto the octahedron, and then onto the xy plane
+    let p = v.xy * (1.0 / (abs(v.x) + abs(v.y) + abs(v.z)))
+
+    // Reflect the folds of the lower hemisphere over the diagonals
+    return if v.z <= 0.0 => (1.0 - abs(p.yx)) * sign_not_zero(p) else p
+
+// Get a float3 normal from an oct representation
+fun oct_to_float32x3(e: float2) -> float3:
+    let mut v = float3(..e.xy, 1.0 - abs(e.x) - abs(e.y))
+    if v.z < 0.0:
+        v.xy = (1.0 - abs(v.yx)) * sign_not_zero(v.xy)
+
+    return normalize(v)
+
+fun signed_normal_encode_to_oct(normal: float3) => snorm12x2_to_unorm8x3(float32x3_to_oct(normal))
+
+fun signed_normal_decode_from_oct(normal: float3) => oct_to_float32x3(unorm8x3_to_snorm12x2(normal))
+
+fun normal_encode(normal: float3) -> float3:
+    if ne_use_octahedral_representation:
+        return signed_normal_encode_to_oct(normal)
+    else:
+        return normal * 0.5 + 0.5
+
+fun normal_decode(normal: float3) -> float3:
+    if ne_use_octahedral_representation:
+        return signed_normal_decode_from_oct(normal)
+    else:
+        return normal * 2.0 - 1.0
+
+// use 5x5 sample pattern for spatial denoise
+@pixel fun main(p: varyings){view, params, input} -> target:
+    let tex_coord = p.texcoord0
+
+    // read center pixel
+    let color = input.color.sample(tex_coord, input.s_tex)
+    let normal = normal_decode(input.normal.sample(tex_coord, input.s_tex).xyz)
+    let depth = input.depth.sample(tex_coord, input.s_tex).x
+    // want depth gradient for edge stopping function
+    let depth_gradient = abs(ddx(depth)) + abs(ddy(depth))
+
+    let du = params.tex_coord_step * view.view_texel.x
+    let dv = params.tex_coord_step * view.view_texel.y
+
+    let gaussian_weights = [1.0 / 16.0, 4.0 / 16.0, 6.0 / 16.0, 4.0 / 16.0, 1.0 / 16.0]
+    let initial_weight = gaussian_weights[2] * gaussian_weights[2]
+    let center_idx = 2
+
+    let mut accumulate_color = color * initial_weight
+    let mut accumulate_weight = initial_weight
+
+    for yy in 0 ..< 5:
+        for xx in 0 ..< 5:
+            if center_idx == xx and center_idx == yy => continue
+
+            let x_offset = (xx as float) - (center_idx as float)
+            let y_offset = (yy as float) - (center_idx as float)
+            let mut sample_tex_coord = tex_coord
+            sample_tex_coord.x += x_offset * du
+            sample_tex_coord.y += y_offset * dv
+
+            let sample_color = input.color.sample(sample_tex_coord, input.s_tex)
+            let sample_normal = normal_decode(input.normal.sample(sample_tex_coord, input.s_tex).xyz)
+            let normal_weight = pow(saturate(dot(normal, sample_normal)), params.sigma_normal)
+
+            let sample_depth = input.depth.sample(sample_tex_coord, input.s_tex).x
+            let depth_delta = depth - sample_depth
+            let depth_weight = exp(-abs(depth_delta) / max(1e-5, params.sigma_depth * params.sigma_depth))
+
+            let mut weight = depth_weight * normal_weight
+
+            // apply gaussian
+            weight *= gaussian_weights[xx] * gaussian_weights[yy]
+
+            accumulate_color += sample_color * weight
+            accumulate_weight += weight
+
+    accumulate_color /= max(accumulate_weight, 1e-5)
+
+    return {
+        color = accumulate_color
+    }

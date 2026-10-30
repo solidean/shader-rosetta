@@ -1,0 +1,16 @@
+// Translated to SGL from bgfx examples/52-layered/vs_layered_blit.sc.
+// Copyright 2011-2026 Branimir Karadzic. BSD-2-Clause: sources/bgfx/LICENSE.
+
+@vertex struct vertex_input:
+    position: float3
+    texcoord0: float2
+
+struct varyings:
+    @position position: hpos4
+    texcoord0: float2
+
+@vertex fun main(v: vertex_input) -> varyings:
+    return {
+        position = hpos4(..v.position, 1.0)
+        texcoord0 = v.texcoord0
+    }

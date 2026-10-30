@@ -1,0 +1,60 @@
+// Translated to SGL from bgfx examples/39-assao/cs_assao_non_smart_half_apply.sc.
+// Copyright 2018 Attila Kocsis. BSD-2-Clause: sources/bgfx/LICENSE.
+
+// the ao format of uniforms.sh, r8, is outside the portable image formats
+require extended_image_formats
+
+// bgfx's u_params[19], one member per define of uniforms.sh, and u_rect
+binding params:
+    viewport_pixel_size: float2
+    half_viewport_pixel_size: float2
+    depth_unpack_consts: float2
+    unused1: float2
+    ndc_to_view_mul: float2
+    ndc_to_view_add: float2
+    per_pass_full_res_coord_offset: float2
+    per_pass_full_res_uv_offset: float2
+    viewport_2x_pixel_size: float2
+    viewport_2x_pixel_size_x_025: float2
+    effect_radius: float
+    effect_shadow_strength: float
+    effect_shadow_pow: float
+    effect_shadow_clamp: float
+    effect_fade_out_mul: float
+    effect_fade_out_add: float
+    effect_horizon_angle_threshold: float
+    effect_sampling_radius_near_limit_rec: float
+    depth_precision_offset_mod: float
+    neg_rec_effect_radius: float
+    load_counter_avg_div: float
+    adaptive_sample_count_limit: float
+    inv_sharpness: float
+    pass_index: float
+    quarter_res_pixel_size: float2
+    pattern_rot_scale_matrices: float4[5]
+    normals_unpack_mul: float
+    normals_unpack_add: float
+    detail_ao_strength: float
+    layer: float
+    normals_world_to_viewspace_matrix0: float4
+    normals_world_to_viewspace_matrix1: float4
+    normals_world_to_viewspace_matrix2: float4
+    normals_world_to_viewspace_matrix3: float4
+    rect: float4
+
+binding ssao:
+    target: out image_2d[.r8_unorm]
+    final_ssao: texture_2d_array[float4]
+    sampler s_final_ssao:
+        filter = .linear
+
+// edge-ignorant blur & apply, skipping half pixels in checkerboard pattern (for the Lowest quality level 0 and Settings::SkipHalfPixelsOnLowQualityLevel == true )
+@compute(8, 8, 1) fun main(@thread_id id: int3){params, ssao}:
+    let dt_id = (id.xy as uint2) + (params.rect.xy as uint2)
+    if all(dt_id < (params.rect.zw as uint2)):
+        let in_uv = ((dt_id as float2) + float2(0.5, 0.5)) * params.viewport_pixel_size
+        let a = ssao.final_ssao.sample(in_uv, ssao.s_final_ssao, layer = 0, level = 0.0).x
+        let d = ssao.final_ssao.sample(in_uv, ssao.s_final_ssao, layer = 3, level = 0.0).x
+        let mut avg = (a + d) * 0.5
+        avg = pow(avg, 1.0 / 2.2)
+        ssao.target[dt_id as int2] = avg

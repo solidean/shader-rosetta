@@ -31,6 +31,10 @@
             "file": "fs_screen_space_shadows.spv",
             "by": "bgfx shaderc b7d0751baa",
             "args": "--type fragment --platform linux -p spirv -i ../../src"
+        },
+        "sgl": {
+            "status": "translated",
+            "file": "fs_screen_space_shadows.sgl"
         }
     }
 }

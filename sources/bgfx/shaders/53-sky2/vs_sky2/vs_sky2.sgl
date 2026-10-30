@@ -1,0 +1,24 @@
+// Translated to SGL from bgfx examples/53-sky2/vs_sky2.sc.
+// Copyright 2026 Mateusz Kozdrowicki. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding view:
+    model_view_proj: mat4
+    model: mat4
+
+@vertex struct vertex_input:
+    position: pos3
+    normal: float3
+
+struct varyings:
+    @position position: hpos4
+    normal: float3
+    wpos: float3
+
+@vertex fun main(v: vertex_input){view} -> varyings:
+    let wpos = view.model * float4(..v.position, 1.0)
+
+    return {
+        position = view.model_view_proj * v.position
+        normal = float3(..(view.model * vec3(..v.normal)))
+        wpos = wpos.xyz
+    }

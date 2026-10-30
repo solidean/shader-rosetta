@@ -1,0 +1,23 @@
+// Translated to SGL from bgfx examples/52-layered/fs_layered_blit.sc.
+// Copyright 2011-2026 Branimir Karadzic. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding material:
+    tex_color: texture_2d_array[float4]
+    sampler s_tex:
+        filter = .linear
+
+binding params:
+    // x = array layer to sample
+    eye_params: float4
+
+struct varyings:
+    @position position: hpos4
+    texcoord0: float2
+
+@pixel struct target:
+    color: float4
+
+@pixel fun main(p: varyings){material, params} -> target:
+    return {
+        color = material.tex_color.sample(p.texcoord0, material.s_tex, layer = floor(params.eye_params.x + 0.5) as int)
+    }

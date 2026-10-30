@@ -1,0 +1,169 @@
+// Translated to SGL from bgfx examples/44-sss/fs_sss_deferred_combine.sc, parameters.sh and normal_encoding.sh.
+// Copyright 2021 elven cache. BSD-2-Clause: sources/bgfx/LICENSE.
+
+// bgfx's u_params[12], one member per define of parameters.sh
+binding params:
+    frame_idx: float
+    shadow_radius: float
+    shadow_steps: float
+    use_noise_offset: float
+    depth_unpack_consts: float2
+    contact_shadows_mode: float
+    use_screen_space_radius: float
+    ndc_to_view_mul: float2
+    ndc_to_view_add: float2
+    light_position: float3
+    display_shadows: float
+    world_to_view0: float4
+    world_to_view1: float4
+    world_to_view2: float4
+    world_to_view3: float4
+    view_to_proj0: float4
+    view_to_proj1: float4
+    view_to_proj2: float4
+    view_to_proj3: float4
+
+binding gbuffer:
+    color: texture_2d[float4]
+    normal: texture_2d[float4]
+    depth: texture_2d[float4]
+    shadows: texture_2d[float4]
+    sampler s_tex:
+        filter = .linear
+
+struct varyings:
+    @position position: hpos4
+    texcoord0: float2
+
+@pixel struct target:
+    color: float4
+
+// shaderlib.sh
+fun to_linear(rgb: float3) => pow(abs(rgb), float3(2.2))
+
+fun to_gamma(rgb: float3) => pow(abs(rgb), float3(1.0 / 2.2))
+
+// normal_encoding.sh
+const ne_use_octahedral_representation = true
+
+// From "A Survey of Efficient Representations for Independent Unit Vectors"
+// http://jcgt.org/published/0003/02/01/paper.pdf
+
+// Convert an oct24 (2x12bit normal) to an rgb8 value for storing in texture
+fun snorm12x2_to_unorm8x3(f: float2) -> float3:
+    let f = clamp(f, -1.0, 1.0)
+    let u = floor(f * 2047.0 + 2047.5)
+    let t = floor(u.y / 256.0)
+
+    // "This code assumes that rounding will occur during storage."
+    // -- Not certain but this appears to mainly apply to the x channel.
+    //    From paper: x = u.x / 16.0 - 0.5
+    //    Instead round by +0.5 and floor.
+    return float3(floor(u.x / 16.0), fract(u.x / 16.0) * 256.0 + t, u.y - t * 256.0) / 255.0
+
+// Unpack oct24 (2x12bit normal) from an rgb8 value stored in texture (normal spec)
+fun unorm8x3_to_snorm12x2(u: float3) -> float2:
+    let mut u = u * 255.0
+    u.y *= 1.0 / 16.0
+    let mut s = float2(u.x * 16.0 + floor(u.y), fract(u.y) * (16.0 * 256.0) + u.z)
+
+    s = s * (1.0 / 2047.0) - 1.0
+    return min(max(s, -1.0), 1.0)
+
+// Built in sign test could return 0, don't want that
+fun sign_not_zero(v: float2) => float2(if v.x >= 0.0 => 1.0 else -1.0, if v.y >= 0.0 => 1.0 else -1.0)
+
+// Assume normalized input. Output is (-1, 1) for each component
+fun float32x3_to_oct(v: float3) -> float2:
+    // Project the sphere onto the octahedron, and then onto the xy plane
+    let p = v.xy * (1.0 / (abs(v.x) + abs(v.y) + abs(v.z)))
+
+    // Reflect the folds of the lower hemisphere over the diagonals
+    return if v.z <= 0.0 => (1.0 - abs(p.yx)) * sign_not_zero(p) else p
+
+// Get a float3 normal from an oct representation
+fun oct_to_float32x3(e: float2) -> float3:
+    let mut v = float3(..e.xy, 1.0 - abs(e.x) - abs(e.y))
+    if v.z < 0.0:
+        v.xy = (1.0 - abs(v.yx)) * sign_not_zero(v.xy)
+
+    return normalize(v)
+
+fun signed_normal_encode_to_oct(normal: float3) => snorm12x2_to_unorm8x3(float32x3_to_oct(normal))
+
+fun signed_normal_decode_from_oct(normal: float3) => oct_to_float32x3(unorm8x3_to_snorm12x2(normal))
+
+fun normal_encode(normal: float3) -> float3:
+    if ne_use_octahedral_representation:
+        return signed_normal_encode_to_oct(normal)
+    else:
+        return normal * 0.5 + 0.5
+
+fun normal_decode(normal: float3) -> float3:
+    if ne_use_octahedral_representation:
+        return signed_normal_decode_from_oct(normal)
+    else:
+        return normal * 2.0 - 1.0
+
+// from assao sample, cs_assao_prepare_depths.sc
+fun ndc_to_viewspace(pos: float2, viewspace_depth: float){params} -> float3:
+    let mut ret = float3(0.0)
+
+    ret.xy = (params.ndc_to_view_mul * pos.xy + params.ndc_to_view_add) * viewspace_depth
+
+    ret.z = viewspace_depth
+
+    return ret
+
+@pixel fun main(p: varyings){params, gbuffer} -> target:
+    let tex_coord = p.texcoord0
+
+    let color_id = gbuffer.color.sample(tex_coord, gbuffer.s_tex)
+    let mut color = to_linear(color_id.xyz)
+    let material_id = color_id.w
+
+    if 0.0 < material_id:
+        // the branch is on a texel, so the samples in it read level 0 rather than take implicit derivatives
+        let normal_roughness = gbuffer.normal.sample(tex_coord, gbuffer.s_tex, level = 0.0)
+        let normal = normal_decode(normal_roughness.xyz)
+        let roughness = normal_roughness.w
+
+        // transform normal into view space
+        let world_to_view = mat4(
+            params.world_to_view0
+            params.world_to_view1
+            params.world_to_view2
+            params.world_to_view3
+        )
+        let vs_normal = (world_to_view * float4(..normal, 0.0)).xyz
+
+        // read depth and recreate position
+        let linear_depth = gbuffer.depth.sample(tex_coord, gbuffer.s_tex, level = 0.0).x
+        let view_space_position = ndc_to_viewspace(tex_coord, linear_depth)
+
+        let shadow = gbuffer.shadows.sample(tex_coord, gbuffer.s_tex, level = 0.0).x
+
+        // need to get a valid view vector for any microfacet stuff :(
+        let gloss = 1.0 - roughness
+        let spec_power = 62.0 * gloss + 2.0
+
+        let mut light = params.light_position - view_space_position
+        let light_dist_sq = dot(light, light) + 1e-5
+        light = normalize(light)
+        let ndotl = saturate(dot(vs_normal, light))
+        let diffuse = ndotl * (1.0 / light_dist_sq)
+        let specular = 5.0 * pow(ndotl, spec_power)
+
+        let light_amount = mix(diffuse, specular, 0.04) * shadow
+
+        color = color * light_amount
+        color = to_gamma(color)
+
+        // debug display shadows only
+        if 0.0 < params.display_shadows:
+            color = float3(shadow)
+    // else, assume color is unlit
+
+    return {
+        color = float4(..color, 1.0)
+    }

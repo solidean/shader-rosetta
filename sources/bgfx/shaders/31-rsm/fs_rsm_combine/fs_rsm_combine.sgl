@@ -1,0 +1,120 @@
+// Translated to SGL from bgfx examples/31-rsm/fs_rsm_combine.sc.
+// Copyright 2016 Joseph Cherlin. BSD-2-Clause: sources/bgfx/LICENSE.
+
+// Single directional light for entire scene
+binding params:
+    light_dir: float4
+    inv_mvp: mat4
+    light_mtx: mat4
+    shadow_dims_inv: float4
+    rsm_amount: float4
+
+binding gbuffer:
+    normal: texture_2d[float4]
+    color: texture_2d[float4]
+    light: texture_2d[float4]
+    depth: texture_2d[float4]
+    shadow_map: texture_2d_depth
+    sampler s_tex:
+        filter = .linear
+    sampler s_shadow_map:
+        filter = .linear
+        compare = .less_equal
+
+struct varyings:
+    @position position: hpos4
+    texcoord0: float2
+
+@pixel struct target:
+    color: float4
+
+// shaderlib.sh, on every target but GLSL, whose depth range bgfx's u_ndc remaps
+fun to_clip_space_depth(depth_texture_z: float) => depth_texture_z
+
+fun to_depth_texture_z(clip_space_z: float) => clip_space_z
+
+fun to_clip_space_y(y: float) => -y
+
+fun clip_to_world(inv_view_proj: mat4, clip_pos: float3) -> float3:
+    let wpos = inv_view_proj * float4(..clip_pos, 1.0)
+    return wpos.xyz / wpos.w
+
+fun hard_shadow(tex: texture_2d_depth, smp: comparison_sampler, shadow_coord: float4, bias: float) -> float:
+    let tex_coord = shadow_coord.xy
+    return tex.sample_compare(tex_coord, smp, reference = shadow_coord.z - bias, level = 0.0)
+
+fun pcf(tex: texture_2d_depth, smp: comparison_sampler, shadow_coord: float4, bias: float, texel_size: float2) -> float:
+    let tex_coord = shadow_coord.xy
+
+    let outside = any(tex_coord > float2(1.0)) or any(tex_coord < float2(0.0))
+
+    if outside:
+        return 1.0
+
+    let mut result = 0.0
+    let offset = texel_size * shadow_coord.w
+
+    result += hard_shadow(tex, smp, shadow_coord + float4(..(float2(-1.5, -1.5) * offset), 0.0, 0.0), bias)
+    result += hard_shadow(tex, smp, shadow_coord + float4(..(float2(-1.5, -0.5) * offset), 0.0, 0.0), bias)
+    result += hard_shadow(tex, smp, shadow_coord + float4(..(float2(-1.5, 0.5) * offset), 0.0, 0.0), bias)
+    result += hard_shadow(tex, smp, shadow_coord + float4(..(float2(-1.5, 1.5) * offset), 0.0, 0.0), bias)
+
+    result += hard_shadow(tex, smp, shadow_coord + float4(..(float2(-0.5, -1.5) * offset), 0.0, 0.0), bias)
+    result += hard_shadow(tex, smp, shadow_coord + float4(..(float2(-0.5, -0.5) * offset), 0.0, 0.0), bias)
+    result += hard_shadow(tex, smp, shadow_coord + float4(..(float2(-0.5, 0.5) * offset), 0.0, 0.0), bias)
+    result += hard_shadow(tex, smp, shadow_coord + float4(..(float2(-0.5, 1.5) * offset), 0.0, 0.0), bias)
+
+    result += hard_shadow(tex, smp, shadow_coord + float4(..(float2(0.5, -1.5) * offset), 0.0, 0.0), bias)
+    result += hard_shadow(tex, smp, shadow_coord + float4(..(float2(0.5, -0.5) * offset), 0.0, 0.0), bias)
+    result += hard_shadow(tex, smp, shadow_coord + float4(..(float2(0.5, 0.5) * offset), 0.0, 0.0), bias)
+    result += hard_shadow(tex, smp, shadow_coord + float4(..(float2(0.5, 1.5) * offset), 0.0, 0.0), bias)
+
+    result += hard_shadow(tex, smp, shadow_coord + float4(..(float2(1.5, -1.5) * offset), 0.0, 0.0), bias)
+    result += hard_shadow(tex, smp, shadow_coord + float4(..(float2(1.5, -0.5) * offset), 0.0, 0.0), bias)
+    result += hard_shadow(tex, smp, shadow_coord + float4(..(float2(1.5, 0.5) * offset), 0.0, 0.0), bias)
+    result += hard_shadow(tex, smp, shadow_coord + float4(..(float2(1.5, 1.5) * offset), 0.0, 0.0), bias)
+
+    return result / 16.0
+
+@pixel fun main(p: varyings){params, gbuffer} -> target:
+    // Expand out normal
+    let n = gbuffer.normal.sample(p.texcoord0, gbuffer.s_tex).xyz * 2.0 + -1.0
+    let l = params.light_dir.xyz
+    let dir_light_intensity = 1.0
+    let mut dir_light = max(0.0, dot(n, l)) * dir_light_intensity
+
+    // Apply shadow map
+
+    // Get world position so we can transform it into light space, to look into shadow map
+    let tex_coord = p.texcoord0.xy
+    let device_depth = gbuffer.depth.sample(tex_coord, gbuffer.s_tex).x
+    let depth = to_clip_space_depth(device_depth)
+    let mut clip = float3(..(tex_coord * 2.0 - 1.0), depth)
+    clip.y = to_clip_space_y(clip.y)
+    let wpos = clip_to_world(params.inv_mvp, clip)
+
+    let shadow_map_offset = 0.003
+    let pos_offset = wpos + n.xyz * shadow_map_offset
+    let mut shadow_coord = params.light_mtx * float4(..pos_offset, 1.0)
+
+    shadow_coord.y = to_clip_space_y(shadow_coord.y)
+
+    let shadow_map_bias = 0.001
+    let texel_size = float2(params.shadow_dims_inv.x)
+
+    shadow_coord.xy /= shadow_coord.w
+    shadow_coord.xy = shadow_coord.xy * 0.5 + 0.5
+
+    shadow_coord.z = to_depth_texture_z(shadow_coord.z)
+
+    let visibility = pcf(gbuffer.shadow_map, gbuffer.s_shadow_map, shadow_coord, shadow_map_bias, texel_size)
+
+    dir_light *= visibility
+
+    // Light from light buffer
+    let albedo = gbuffer.color.sample(p.texcoord0, gbuffer.s_tex).xyz
+    let light_buffer = gbuffer.light.sample(p.texcoord0, gbuffer.s_tex).xyz
+
+    return {
+        color = float4(..mix(dir_light * albedo, light_buffer * albedo, params.rsm_amount.x), 1.0)
+    }

@@ -1,0 +1,117 @@
+// Translated to SGL from bgfx examples/44-sss/fs_sss_unlit.sc, parameters.sh and normal_encoding.sh.
+// The original carries no copyright line; bgfx: Copyright 2010-2026 Branimir Karadzic. BSD-2-Clause: sources/bgfx/LICENSE.
+
+// bgfx's u_params[12], one member per define of parameters.sh
+binding params:
+    frame_idx: float
+    shadow_radius: float
+    shadow_steps: float
+    use_noise_offset: float
+    depth_unpack_consts: float2
+    contact_shadows_mode: float
+    use_screen_space_radius: float
+    ndc_to_view_mul: float2
+    ndc_to_view_add: float2
+    light_position: float3
+    display_shadows: float
+    world_to_view0: float4
+    world_to_view1: float4
+    world_to_view2: float4
+    world_to_view3: float4
+    view_to_proj0: float4
+    view_to_proj1: float4
+    view_to_proj2: float4
+    view_to_proj3: float4
+
+struct varyings:
+    @position position: hpos4
+    normal: float3
+    texcoord0: float2
+    texcoord1: float4
+
+@pixel struct target:
+    // w signifies a different handling while lighting/shading these pixels in the gbuffer combine pass
+    albedo: float4
+    // xyz is the encoded normal, w the roughness
+    normal: float4
+
+// shaderlib.sh
+fun to_gamma(rgb: float3) => pow(abs(rgb), float3(1.0 / 2.2))
+
+// normal_encoding.sh
+const ne_use_octahedral_representation = true
+
+// From "A Survey of Efficient Representations for Independent Unit Vectors"
+// http://jcgt.org/published/0003/02/01/paper.pdf
+
+// Convert an oct24 (2x12bit normal) to an rgb8 value for storing in texture
+fun snorm12x2_to_unorm8x3(f: float2) -> float3:
+    let f = clamp(f, -1.0, 1.0)
+    let u = floor(f * 2047.0 + 2047.5)
+    let t = floor(u.y / 256.0)
+
+    // "This code assumes that rounding will occur during storage."
+    // -- Not certain but this appears to mainly apply to the x channel.
+    //    From paper: x = u.x / 16.0 - 0.5
+    //    Instead round by +0.5 and floor.
+    return float3(floor(u.x / 16.0), fract(u.x / 16.0) * 256.0 + t, u.y - t * 256.0) / 255.0
+
+// Unpack oct24 (2x12bit normal) from an rgb8 value stored in texture (normal spec)
+fun unorm8x3_to_snorm12x2(u: float3) -> float2:
+    let mut u = u * 255.0
+    u.y *= 1.0 / 16.0
+    let mut s = float2(u.x * 16.0 + floor(u.y), fract(u.y) * (16.0 * 256.0) + u.z)
+
+    s = s * (1.0 / 2047.0) - 1.0
+    return min(max(s, -1.0), 1.0)
+
+// Built in sign test could return 0, don't want that
+fun sign_not_zero(v: float2) => float2(if v.x >= 0.0 => 1.0 else -1.0, if v.y >= 0.0 => 1.0 else -1.0)
+
+// Assume normalized input. Output is (-1, 1) for each component
+fun float32x3_to_oct(v: float3) -> float2:
+    // Project the sphere onto the octahedron, and then onto the xy plane
+    let p = v.xy * (1.0 / (abs(v.x) + abs(v.y) + abs(v.z)))
+
+    // Reflect the folds of the lower hemisphere over the diagonals
+    return if v.z <= 0.0 => (1.0 - abs(p.yx)) * sign_not_zero(p) else p
+
+// Get a float3 normal from an oct representation
+fun oct_to_float32x3(e: float2) -> float3:
+    let mut v = float3(..e.xy, 1.0 - abs(e.x) - abs(e.y))
+    if v.z < 0.0:
+        v.xy = (1.0 - abs(v.yx)) * sign_not_zero(v.xy)
+
+    return normalize(v)
+
+fun signed_normal_encode_to_oct(normal: float3) => snorm12x2_to_unorm8x3(float32x3_to_oct(normal))
+
+fun signed_normal_decode_from_oct(normal: float3) => oct_to_float32x3(unorm8x3_to_snorm12x2(normal))
+
+fun normal_encode(normal: float3) -> float3:
+    if ne_use_octahedral_representation:
+        return signed_normal_encode_to_oct(normal)
+    else:
+        return normal * 0.5 + 0.5
+
+fun normal_decode(normal: float3) -> float3:
+    if ne_use_octahedral_representation:
+        return signed_normal_decode_from_oct(normal)
+    else:
+        return normal * 2.0 - 1.0
+
+@pixel fun main(p: varyings) -> target:
+    let albedo = float3(1.0)
+
+    // get vertex normal
+    let normal = normalize(p.normal)
+    let roughness = 1.0
+
+    let buffer_normal = normal_encode(normal)
+
+    // write data to alpha channel of color buffer to signify different handling
+    // while lighting/shading these pixels in the gbuffer combine pass
+    return {
+        albedo = float4(..to_gamma(albedo), 0.0)
+        normal = float4(..buffer_normal, roughness)
+    }

@@ -1,0 +1,52 @@
+// Translated to SGL from bgfx examples/45-bokeh/fs_bokeh_linear_depth.sc, with parameters.sh.
+// Copyright 2021 elven cache. BSD-2-Clause: sources/bgfx/LICENSE.
+
+// bgfx's u_params[13], one member per define of parameters.sh
+binding params:
+    depth_unpack_consts: float2
+    frame_idx: float
+    lobe_rotation: float
+    ndc_to_view_mul: float2
+    ndc_to_view_add: float2
+    blur_steps: float
+    // u_samplePattern names this lane too
+    lobe_count: float
+    lobe_radius_min: float
+    lobe_radius_delta2x: float
+    max_blur_size: float
+    focus_point: float
+    focus_scale: float
+    radius_scale: float
+
+binding material:
+    depth: texture_2d_depth
+    sampler s_depth:
+        filter = .nearest
+
+struct varyings:
+    @position position: hpos4
+    texcoord0: float2
+
+@pixel struct target:
+    color: float4
+
+// from assao sample, cs_assao_prepare_depths.sc
+fun screen_space_to_view_space_depth(screen_depth: float){params} -> float:
+    let depth_linearize_mul = params.depth_unpack_consts.x
+    let depth_linearize_add = params.depth_unpack_consts.y
+
+    // Optimised version of "-cameraClipNear / (cameraClipFar - projDepth * (cameraClipFar - cameraClipNear)) * cameraClipFar"
+
+    // Set your depthLinearizeMul and depthLinearizeAdd to:
+    // depthLinearizeMul = ( cameraClipFar * cameraClipNear) / ( cameraClipFar - cameraClipNear );
+    // depthLinearizeAdd = cameraClipFar / ( cameraClipFar - cameraClipNear );
+
+    return depth_linearize_mul / (depth_linearize_add - screen_depth)
+
+@pixel fun main(p: varyings){params, material} -> target:
+    let tex_coord = p.texcoord0
+    let depth = material.depth.sample(tex_coord, material.s_depth)
+    let linear_depth = screen_space_to_view_space_depth(depth)
+    return {
+        color = float4(linear_depth)
+    }

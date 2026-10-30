@@ -1,0 +1,24 @@
+// Translated to SGL from bgfx examples/31-rsm/fs_rsm_gbuffer.sc.
+// Copyright 2016 Joseph Cherlin. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding params:
+    tint: float4
+
+struct varyings:
+    @position position: hpos4
+    normal: float3
+
+@pixel struct target:
+    normal: float4
+    color: float4
+
+@pixel fun main(p: varyings){params} -> target:
+    let normal_world_space = p.normal
+
+    return {
+        // Write normal
+        // Normal is already compressed to [0,1] so can fit in gbuffer
+        normal = float4(..normal_world_space, 0.0)
+        // Write color
+        color = params.tint
+    }

@@ -1,0 +1,417 @@
+// Translated to SGL from bgfx examples/53-sky2/fs_sky2.sc, with atmosphere.sh, sky2_common.sh and hextile.sh.
+// Copyright 2026 Mateusz Kozdrowicki. BSD-2-Clause: sources/bgfx/LICENSE.
+
+// Reference: Hillaire, Sébastien. "A Scalable and Production Ready Sky and Atmosphere Rendering Technique.
+// https://sebh.github.io/publications/egsr2020.pdf
+
+// in km
+const terrain_tile = 0.5
+const terrain_rock_slope = 0.1
+const terrain_detile_rot = 0.5
+
+const terrain_shadow_bias = 0.0015
+
+const aerial_steps = 16
+
+// atmosphere.sh's uniforms, one member per define
+binding atmosphere:
+    // u_atmoRayleigh, xyz: rayleigh scatter (1/km), w: rayleigh scale height (km)
+    rayleigh_scatter: float3
+    rayleigh_h: float
+    // u_atmoMie, x: mie scatter, y: mie extinction (1/km), z: mie scale height (km), w: mie phase g
+    mie_scatter: float
+    mie_extinction: float
+    mie_h: float
+    mie_g: float
+    // u_atmoOzone, xyz: ozone absorption (1/km), w: multiple scattering strength
+    ozone_absorb: float3
+    ms_strength: float
+    // u_atmoPlanet, x: bottom radius, y: top radius (km), z: ozone center, w: ozone half-width (km)
+    bottom_radius: float
+    top_radius: float
+    ozone_center: float
+    ozone_half: float
+    // u_atmoGround
+    ground_albedo: float3
+
+binding material:
+    atmo_transmittance: texture_2d[float4]
+    atmo_multiscatter: texture_2d[float4]
+    sky_view: texture_2d[float4]
+    grass: texture_2d[float4]
+    rock: texture_2d[float4]
+    shadow_map: texture_2d[float4]
+    sampler s_tex:
+        filter = .linear
+
+binding params:
+    sun_direction: float4
+    sun_radiance: float4
+    // (km)
+    camera_pos: float4
+    // x: view radius (km)
+    sky_params: float4
+    // x: in-scatter, y: density, z: ambient
+    aerial_params: float4
+    // x: uv texel, y: world texel (km), z: enabled
+    shadow_params: float4
+    light_mtx: mat4
+
+struct varyings:
+    @position position: hpos4
+    normal: float3
+    wpos: float3
+
+@pixel struct target:
+    color: float4
+
+// ---- atmosphere.sh ----
+
+// Reference: Hillaire, Sébastien. "A Scalable and Production Ready Sky and Atmosphere Rendering Technique.
+// https://sebh.github.io/publications/egsr2020.pdf
+
+const atmo_pi = 3.14159265359
+
+struct atmosphere_medium_sample:
+    scatter_rayleigh: float3
+    scatter_mie: float
+    extinction: float3
+
+fun atmosphere_medium(h: float){atmosphere} -> atmosphere_medium_sample:
+    let density_r = exp(-h / atmosphere.rayleigh_h)
+    let density_m = exp(-h / atmosphere.mie_h)
+    let density_o = max(0.0, 1.0 - abs(h - atmosphere.ozone_center) / atmosphere.ozone_half)
+
+    return {
+        scatter_rayleigh = atmosphere.rayleigh_scatter * density_r
+        scatter_mie = atmosphere.mie_scatter * density_m
+        extinction = atmosphere.rayleigh_scatter * density_r
+            + float3(atmosphere.mie_extinction * density_m)
+            + atmosphere.ozone_absorb * density_o
+    }
+
+fun atmosphere_phase_rayleigh(cos_theta: float) -> float:
+    return 3.0 / (16.0 * atmo_pi) * (1.0 + cos_theta * cos_theta)
+
+fun atmosphere_phase_mie(cos_theta: float){atmosphere} -> float:
+    let g = atmosphere.mie_g
+    let g2 = g * g
+    let d = 1.0 + g2 - 2.0 * g * cos_theta
+    return 3.0 / (8.0 * atmo_pi) * ((1.0 - g2) * (1.0 + cos_theta * cos_theta)) / ((2.0 + g2) * d * sqrt(max(d, 1e-6)))
+
+fun atmosphere_dist_to_sphere(r: float, mu: float, big_r: float) -> float:
+    let disc = r * r * (mu * mu - 1.0) + big_r * big_r
+    return max(0.0, -r * mu + sqrt(max(disc, 0.0)))
+
+// transmittance lut parameterization Bruneton's distance based mapping.
+fun atmosphere_transmittance_uv(r: float, mu: float){atmosphere} -> float2:
+    let h = sqrt(atmosphere.top_radius * atmosphere.top_radius - atmosphere.bottom_radius * atmosphere.bottom_radius)
+    let rho = sqrt(max(r * r - atmosphere.bottom_radius * atmosphere.bottom_radius, 0.0))
+
+    let d = atmosphere_dist_to_sphere(r, mu, atmosphere.top_radius)
+    let d_min = atmosphere.top_radius - r
+    let d_max = rho + h
+
+    return float2((d - d_min) / (d_max - d_min), rho / h)
+
+// sky view ly parameterization.
+fun atmosphere_skyview_uv(r: float, view_zenith_cos: float, sun_rel_azimuth: float){atmosphere} -> float2:
+    let v_horizon = sqrt(max(r * r - atmosphere.bottom_radius * atmosphere.bottom_radius, 0.0))
+    let beta = acos(clamp(v_horizon / r, -1.0, 1.0))
+    let zenith_horizon = atmo_pi - beta
+    let view_zenith = acos(clamp(view_zenith_cos, -1.0, 1.0))
+
+    let mut v: float
+    if view_zenith < zenith_horizon:
+        let coord = view_zenith / zenith_horizon
+        v = (1.0 - sqrt(1.0 - coord)) * 0.5
+    else:
+        let coord = (view_zenith - zenith_horizon) / max(beta, 1e-4)
+        v = sqrt(saturate(coord)) * 0.5 + 0.5
+
+    let u = sun_rel_azimuth / (2.0 * atmo_pi) + 0.5
+    return float2(u, v)
+
+// ---- sky2_common.sh ----
+
+const sky2_exposure = 1.6
+
+// ACES filmic Narkowicz 2015 fit.
+fun sky2_tonemap(color: float3) -> float3:
+    let mut color = color
+    color *= sky2_exposure
+    let num = color * (2.51 * color + 0.03)
+    let den = color * (2.43 * color + 0.59) + 0.14
+    return saturate(num / den)
+
+// ---- hextile.sh ----
+
+// Hextiling
+// Adapted from bgfx example 49-hextile (Copyright 2022 Preetish Kakkar).
+
+const hextile_pi = 3.14159265359
+
+fun hextile_gain3(x: float3, r: float) -> float3:
+    let k = log(1.0 - r) / log(0.5)
+
+    let s = 2.0 * step(float3(0.5), x)
+    let m = 2.0 * (1.0 - s)
+
+    let res = 0.5 * s + 0.25 * m * pow(max(float3(0.0), s + x * m), float3(k))
+
+    return res.xyz / (res.x + res.y + res.z)
+
+// The original's mat2(a, b, c, d) has the rows (a, b) and (c, d) in bgfx's HLSL, and a mat2 is built from its columns.
+fun hextile_rot2x2(idx: float2, rot_strength: float) -> mat2:
+    let mut angle = abs(idx.x * idx.y) + abs(idx.x + idx.y) + hextile_pi
+
+    if angle < 0.0 => angle += 2.0 * hextile_pi
+    if angle > hextile_pi => angle -= 2.0 * hextile_pi
+
+    angle *= rot_strength
+
+    let cs = cos(angle)
+    let si = sin(angle)
+
+    return mat2(float2(cs, si), float2(-si, cs))
+
+fun hextile_cen_st(vertex: float2) -> float2:
+    let inv_skew_mat = mat2(float2(1.0, 0.0), float2(0.5, 1.0 / 1.15470054))
+
+    return inv_skew_mat * vertex / (2.0 * sqrt(3.0))
+
+fun hextile_hash(p: float2) -> float2:
+    let r = mat2(float2(127.1, 269.5), float2(311.7, 183.3)) * p
+
+    return fract(sin(r) * 43758.5453)
+
+struct hextile_grid_cell:
+    w1: float
+    w2: float
+    w3: float
+    vertex1: float2
+    vertex2: float2
+    vertex3: float2
+
+fun hextile_grid(uv: float2) -> hextile_grid_cell:
+    let mut uv = uv
+    uv *= 2.0 * sqrt(3.0)
+
+    let grid_to_skewed_grid = mat2(float2(1.0, 0.0), float2(-0.57735027, 1.15470054))
+    let skewed_coord = grid_to_skewed_grid * uv
+
+    let base_id = floor(skewed_coord)
+    let mut temp = float3(..fract(skewed_coord), 0.0)
+    temp.z = 1.0 - temp.x - temp.y
+
+    let s = step(0.0, -temp.z)
+    let s2 = 2.0 * s - 1.0
+
+    return {
+        w1 = -temp.z * s2
+        w2 = s - temp.y * s2
+        w3 = s - temp.x * s2
+        vertex1 = base_id + float2(s, s)
+        vertex2 = base_id + float2(s, 1.0 - s)
+        vertex3 = base_id + float2(1.0 - s, s)
+    }
+
+struct hextile:
+    uv1: float2
+    uv2: float2
+    uv3: float2
+    rot1: mat2
+    rot2: mat2
+    rot3: mat2
+    bary: float3
+
+fun hextile_setup(uv: float2, rot_strength: float) -> hextile:
+    let grid = hextile_grid(uv)
+
+    let rot1 = hextile_rot2x2(grid.vertex1, rot_strength)
+    let rot2 = hextile_rot2x2(grid.vertex2, rot_strength)
+    let rot3 = hextile_rot2x2(grid.vertex3, rot_strength)
+
+    let cen1 = hextile_cen_st(grid.vertex1)
+    let cen2 = hextile_cen_st(grid.vertex2)
+    let cen3 = hextile_cen_st(grid.vertex3)
+
+    // bgfx's mul(v, m) is the row vector times the matrix
+    return {
+        uv1 = transpose(rot1) * (uv - cen1) + cen1 + hextile_hash(grid.vertex1)
+        uv2 = transpose(rot2) * (uv - cen2) + cen2 + hextile_hash(grid.vertex2)
+        uv3 = transpose(rot3) * (uv - cen3) + cen3 + hextile_hash(grid.vertex3)
+        rot1 = rot1
+        rot2 = rot2
+        rot3 = rot3
+        bary = float3(grid.w1, grid.w2, grid.w3)
+    }
+
+fun hextile_blend(c1: float3, c2: float3, c3: float3, bary: float3) -> float3:
+    let lw = float3(0.299, 0.587, 0.114)
+    let mut dw = float3(dot(c1, lw), dot(c2, lw), dot(c3, lw))
+
+    dw = mix(float3(1.0), dw, 0.6)
+
+    let mut w = dw * pow(bary, float3(7.0))
+    w /= (w.x + w.y + w.z)
+    w = hextile_gain3(w, 0.7)
+
+    return w.x * c1 + w.y * c2 + w.z * c3
+
+// ---- fs_sky2.sc ----
+
+fun tr_lut(r: float, mu: float){atmosphere, material} -> float3:
+    return material.atmo_transmittance.sample(atmosphere_transmittance_uv(r, mu), material.s_tex, level = 0.0).rgb
+
+fun ms_lut(r: float, mu_sun: float){atmosphere, material} -> float3:
+    let uv = float2(mu_sun * 0.5 + 0.5, (r - atmosphere.bottom_radius) / (atmosphere.top_radius - atmosphere.bottom_radius))
+    return material.atmo_multiscatter.sample(uv, material.s_tex, level = 0.0).rgb
+
+struct terrain_fetch:
+    grass: float3
+    rock: float3
+
+fun hex_terrain_fetch(uv: float2, rot_strength: float){material} -> terrain_fetch:
+    let d_st_dx = ddx(uv)
+    let d_st_dy = ddy(uv)
+
+    let h = hextile_setup(uv, rot_strength)
+
+    // bgfx's mul(v, m) is the row vector times the matrix
+    let grass = hextile_blend(
+        material.grass.sample(h.uv1, material.s_tex, grad_x = transpose(h.rot1) * d_st_dx, grad_y = transpose(h.rot1) * d_st_dy).xyz
+        material.grass.sample(h.uv2, material.s_tex, grad_x = transpose(h.rot2) * d_st_dx, grad_y = transpose(h.rot2) * d_st_dy).xyz
+        material.grass.sample(h.uv3, material.s_tex, grad_x = transpose(h.rot3) * d_st_dx, grad_y = transpose(h.rot3) * d_st_dy).xyz
+        h.bary
+    )
+
+    let rock = hextile_blend(
+        material.rock.sample(h.uv1, material.s_tex, grad_x = transpose(h.rot1) * d_st_dx, grad_y = transpose(h.rot1) * d_st_dy).xyz
+        material.rock.sample(h.uv2, material.s_tex, grad_x = transpose(h.rot2) * d_st_dx, grad_y = transpose(h.rot2) * d_st_dy).xyz
+        material.rock.sample(h.uv3, material.s_tex, grad_x = transpose(h.rot3) * d_st_dx, grad_y = transpose(h.rot3) * d_st_dy).xyz
+        h.bary
+    )
+
+    return {
+        grass = grass
+        rock = rock
+    }
+
+// 3x3 PCF
+fun sun_shadow(wpos: float3, n: float3, ndotl: float){material, params} -> float:
+    if params.shadow_params.z < 0.5 => return 1.0
+
+    let n_offset = params.shadow_params.y * (2.0 + 6.0 * (1.0 - ndotl))
+    let sc = params.light_mtx * float4(..(wpos + n * n_offset), 1.0)
+    let c = sc.xyz / sc.w
+
+    if c.x < 0.0 or c.x > 1.0 or c.y < 0.0 or c.y > 1.0 or c.z > 1.0 => return 1.0
+
+    let bias = terrain_shadow_bias * (1.0 + 3.0 * (1.0 - ndotl))
+    let texel = params.shadow_params.x
+
+    let mut sum = 0.0
+    for dy in -1 ..= 1:
+        for dx in -1 ..= 1:
+            // past the return above, which depends on the fragment, so level 0 where the original takes derivatives
+            let stored = material.shadow_map.sample(c.xy + float2(dx as float, dy as float) * texel, material.s_tex, level = 0.0).r
+            sum += if c.z - bias > stored => 0.0 else 1.0
+
+    return sum / 9.0
+
+@pixel fun main(p: varyings){atmosphere, material, params} -> target:
+    let n = normalize(p.normal)
+
+    let mut tw = abs(n)
+    tw = tw * tw * tw
+    tw = tw / max(tw.x + tw.y + tw.z, 1e-4)
+
+    let pw = p.wpos * terrain_tile
+
+    let fetch_x = hex_terrain_fetch(pw.zy, terrain_detile_rot)
+    let fetch_y = hex_terrain_fetch(pw.xz, terrain_detile_rot)
+    let fetch_z = hex_terrain_fetch(pw.xy, terrain_detile_rot)
+
+    let mut grass = fetch_x.grass * tw.x + fetch_y.grass * tw.y + fetch_z.grass * tw.z
+    let mut rock = fetch_x.rock * tw.x + fetch_y.rock * tw.y + fetch_z.rock * tw.z
+
+    // srgb -> linear
+    grass = pow(grass, float3(2.2))
+    rock = pow(rock, float3(2.2))
+
+    let slope = 1.0 - n.y
+    let rock_w = smoothstep(terrain_rock_slope, terrain_rock_slope + 0.2, slope)
+    let albedo = mix(grass, rock, rock_w)
+
+    let to_sun = -normalize(params.sun_direction.xyz)
+    let mu_sun = to_sun.y
+
+    let frag_alt = max(p.wpos.y, 0.0)
+    let surf_r = atmosphere.bottom_radius + frag_alt
+
+    // direct sun Lambert BRDF
+    let sun_t = tr_lut(surf_r, mu_sun)
+    let ndotl = max(dot(n, to_sun), 0.0)
+    let shadow = sun_shadow(p.wpos, n, ndotl)
+    let direct = albedo * (1.0 / atmo_pi) * params.sun_radiance.rgb * sun_t * ndotl * shadow
+
+    let lut_r = params.sky_params.x
+    let mut sky_avg = material.sky_view.sample(atmosphere_skyview_uv(lut_r, 1.00, 0.0), material.s_tex, level = 0.0).rgb
+        + material.sky_view.sample(atmosphere_skyview_uv(lut_r, 0.35, 0.0), material.s_tex, level = 0.0).rgb
+        + material.sky_view.sample(atmosphere_skyview_uv(lut_r, 0.35, atmo_pi), material.s_tex, level = 0.0).rgb
+    sky_avg *= 1.0 / 3.0
+
+    let ambient = albedo * sky_avg * (0.4 + 0.6 * saturate(n.y)) * params.aerial_params.z
+
+    let lit = direct + ambient
+
+    // aerial perspective march camera -> fragment
+    let cam = params.camera_pos.xyz
+    let ray = p.wpos - cam
+    let dist = length(ray)
+    let vdir = ray / max(dist, 1e-6)
+
+    let cos_sun_view = dot(vdir, to_sun)
+    let phase_r = atmosphere_phase_rayleigh(cos_sun_view)
+    let phase_m = atmosphere_phase_mie(cos_sun_view)
+
+    let density = params.aerial_params.y
+    let dt = dist / (aerial_steps as float)
+
+    let mut throughput = float3(1.0, 1.0, 1.0)
+    let mut inscatter = float3(0.0, 0.0, 0.0)
+
+    for i in 0 ..< aerial_steps:
+        let t = ((i as float) + 0.5) * dt
+        let pos = cam + vdir * t
+        let alt = max(pos.y, 0.0)
+        let sr = atmosphere.bottom_radius + alt
+
+        let medium = atmosphere_medium(alt)
+        let mut scatter_r = medium.scatter_rayleigh
+        let mut scatter_m = medium.scatter_mie
+        let mut extinction = medium.extinction
+
+        scatter_r *= density
+        scatter_m *= density
+        extinction *= density
+
+        let st = tr_lut(sr, mu_sun)
+        let psi = ms_lut(sr, mu_sun) * atmosphere.ms_strength
+
+        let mut s = (scatter_r * phase_r + float3(scatter_m * phase_m)) * st
+            + (scatter_r + float3(scatter_m)) * psi
+        s *= params.sun_radiance.rgb
+
+        let step_t = exp(-extinction * dt)
+        let safe_e = max(extinction, float3(1e-7))
+
+        inscatter += throughput * (s - s * step_t) / safe_e
+        throughput *= step_t
+
+    let color = lit * throughput + inscatter * params.aerial_params.x
+
+    return {
+        color = float4(..sky2_tonemap(color), 1.0)
+    }

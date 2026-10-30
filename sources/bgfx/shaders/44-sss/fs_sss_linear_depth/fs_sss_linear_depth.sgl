@@ -1,0 +1,57 @@
+// Translated to SGL from bgfx examples/44-sss/fs_sss_linear_depth.sc and parameters.sh.
+// Copyright 2021 elven cache. BSD-2-Clause: sources/bgfx/LICENSE.
+
+// bgfx's u_params[12], one member per define of parameters.sh
+binding params:
+    frame_idx: float
+    shadow_radius: float
+    shadow_steps: float
+    use_noise_offset: float
+    depth_unpack_consts: float2
+    contact_shadows_mode: float
+    use_screen_space_radius: float
+    ndc_to_view_mul: float2
+    ndc_to_view_add: float2
+    light_position: float3
+    display_shadows: float
+    world_to_view0: float4
+    world_to_view1: float4
+    world_to_view2: float4
+    world_to_view3: float4
+    view_to_proj0: float4
+    view_to_proj1: float4
+    view_to_proj2: float4
+    view_to_proj3: float4
+
+binding input:
+    depth: texture_2d[float4]
+    sampler s_tex:
+        filter = .linear
+
+struct varyings:
+    @position position: hpos4
+    texcoord0: float2
+
+@pixel struct target:
+    color: float4
+
+// from assao sample, cs_assao_prepare_depths.sc
+fun screen_space_to_view_space_depth(screen_depth: float){params} -> float:
+    let depth_linearize_mul = params.depth_unpack_consts.x
+    let depth_linearize_add = params.depth_unpack_consts.y
+
+    // Optimised version of "-cameraClipNear / (cameraClipFar - projDepth * (cameraClipFar - cameraClipNear)) * cameraClipFar"
+
+    // Set your depthLinearizeMul and depthLinearizeAdd to:
+    // depthLinearizeMul = ( cameraClipFar * cameraClipNear) / ( cameraClipFar - cameraClipNear );
+    // depthLinearizeAdd = cameraClipFar / ( cameraClipFar - cameraClipNear );
+
+    return depth_linearize_mul / (depth_linearize_add - screen_depth)
+
+@pixel fun main(p: varyings){params, input} -> target:
+    let tex_coord = p.texcoord0
+    let depth = input.depth.sample(tex_coord, input.s_tex).x
+    let linear_depth = screen_space_to_view_space_depth(depth)
+    return {
+        color = float4(linear_depth)
+    }

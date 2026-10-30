@@ -1,0 +1,24 @@
+// Translated to SGL from bgfx examples/53-sky2/vs_sky2_shadow.sc.
+// Copyright 2026 Mateusz Kozdrowicki. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding view:
+    model: mat4
+
+binding params:
+    light_view_proj: mat4
+    light_mtx: mat4
+
+@vertex struct vertex_input:
+    position: float3
+
+struct varyings:
+    @position position: hpos4
+    shadowcoord: float4
+
+@vertex fun main(v: vertex_input){view, params} -> varyings:
+    let wpos = view.model * float4(..v.position, 1.0)
+
+    return {
+        position = hpos4(..(params.light_view_proj * wpos))
+        shadowcoord = params.light_mtx * wpos
+    }

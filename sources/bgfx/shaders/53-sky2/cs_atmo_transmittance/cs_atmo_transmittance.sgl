@@ -1,0 +1,105 @@
+// Translated to SGL from bgfx examples/53-sky2/cs_atmo_transmittance.sc, with atmosphere.sh.
+// Copyright 2026 Mateusz Kozdrowicki. BSD-2-Clause: sources/bgfx/LICENSE.
+
+// Reference: Hillaire, Sébastien. "A Scalable and Production Ready Sky and Atmosphere Rendering Technique.
+// https://sebh.github.io/publications/egsr2020.pdf
+
+const lut_width = 256
+const lut_height = 64
+const steps = 40
+
+// atmosphere.sh's uniforms, one member per define
+binding atmosphere:
+    // u_atmoRayleigh, xyz: rayleigh scatter (1/km), w: rayleigh scale height (km)
+    rayleigh_scatter: float3
+    rayleigh_h: float
+    // u_atmoMie, x: mie scatter, y: mie extinction (1/km), z: mie scale height (km), w: mie phase g
+    mie_scatter: float
+    mie_extinction: float
+    mie_h: float
+    mie_g: float
+    // u_atmoOzone, xyz: ozone absorption (1/km), w: multiple scattering strength
+    ozone_absorb: float3
+    ms_strength: float
+    // u_atmoPlanet, x: bottom radius, y: top radius (km), z: ozone center, w: ozone half-width (km)
+    bottom_radius: float
+    top_radius: float
+    ozone_center: float
+    ozone_half: float
+    // u_atmoGround
+    ground_albedo: float3
+
+binding lut:
+    transmittance_out: out image_2d[.rgba16_float]
+
+// ---- atmosphere.sh ----
+
+// Reference: Hillaire, Sébastien. "A Scalable and Production Ready Sky and Atmosphere Rendering Technique.
+// https://sebh.github.io/publications/egsr2020.pdf
+
+const atmo_pi = 3.14159265359
+
+struct atmosphere_medium_sample:
+    scatter_rayleigh: float3
+    scatter_mie: float
+    extinction: float3
+
+fun atmosphere_medium(h: float){atmosphere} -> atmosphere_medium_sample:
+    let density_r = exp(-h / atmosphere.rayleigh_h)
+    let density_m = exp(-h / atmosphere.mie_h)
+    let density_o = max(0.0, 1.0 - abs(h - atmosphere.ozone_center) / atmosphere.ozone_half)
+
+    return {
+        scatter_rayleigh = atmosphere.rayleigh_scatter * density_r
+        scatter_mie = atmosphere.mie_scatter * density_m
+        extinction = atmosphere.rayleigh_scatter * density_r
+            + float3(atmosphere.mie_extinction * density_m)
+            + atmosphere.ozone_absorb * density_o
+    }
+
+fun atmosphere_dist_to_sphere(r: float, mu: float, big_r: float) -> float:
+    let disc = r * r * (mu * mu - 1.0) + big_r * big_r
+    return max(0.0, -r * mu + sqrt(max(disc, 0.0)))
+
+struct transmittance_params:
+    r: float
+    mu: float
+
+fun atmosphere_transmittance_params(uv: float2){atmosphere} -> transmittance_params:
+    let h = sqrt(atmosphere.top_radius * atmosphere.top_radius - atmosphere.bottom_radius * atmosphere.bottom_radius)
+    let rho = uv.y * h
+
+    let r = sqrt(rho * rho + atmosphere.bottom_radius * atmosphere.bottom_radius)
+
+    let d_min = atmosphere.top_radius - r
+    let d_max = rho + h
+    let d = d_min + uv.x * (d_max - d_min)
+
+    return {
+        r = r
+        mu = if d <= 0.0 => 1.0 else clamp((h * h - rho * rho - d * d) / (2.0 * r * d), -1.0, 1.0)
+    }
+
+@compute(8, 8, 1) fun main(@thread_id id: int3){atmosphere, lut}:
+    let coord = id.xy
+    if coord.x >= lut_width or coord.y >= lut_height => return
+
+    let uv = ((coord as float2) + float2(0.5, 0.5)) / float2(lut_width as float, lut_height as float)
+
+    let params = atmosphere_transmittance_params(uv)
+    let r = params.r
+    let mu = params.mu
+
+    let t_max = atmosphere_dist_to_sphere(r, mu, atmosphere.top_radius)
+    let dt = t_max / (steps as float)
+
+    let mut optical_depth = float3(0.0, 0.0, 0.0)
+    for i in 0 ..< steps:
+        let t = ((i as float) + 0.5) * dt
+        let h = sqrt(r * r + t * t + 2.0 * r * mu * t) - atmosphere.bottom_radius
+
+        let medium = atmosphere_medium(max(h, 0.0))
+
+        optical_depth += medium.extinction * dt
+
+    lut.transmittance_out[coord] = float4(..exp(-optical_depth), 1.0) as texel[.rgba16_float]

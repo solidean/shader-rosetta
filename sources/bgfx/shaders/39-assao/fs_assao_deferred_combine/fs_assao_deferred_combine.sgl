@@ -1,0 +1,40 @@
+// Translated to SGL from bgfx examples/39-assao/fs_assao_deferred_combine.sc.
+// Copyright 2018 Attila Kocsis. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding params:
+    combine_params: float4[2]
+
+binding material:
+    color: texture_2d[float4]
+    normal: texture_2d[float4]
+    ao: texture_2d[float4]
+    sampler s_tex:
+        filter = .linear
+
+struct varyings:
+    @position position: hpos4
+    texcoord0: float2
+
+@pixel struct target:
+    color: float4
+
+@pixel fun main(p: varyings){params, material} -> target:
+    let tc0 = p.texcoord0 * params.combine_params[1].xy + params.combine_params[1].zw
+    let mut albedo_color = float3(1.0, 1.0, 1.0)
+    if params.combine_params[0].x > 0.0:
+        albedo_color = material.color.sample(tc0, material.s_tex).rgb
+
+    let mut light = 1.0
+    if params.combine_params[0].x > 0.0:
+        // expand out normal
+        let n = vec3(..(material.normal.sample(tc0, material.s_tex).xyz * 2.0 - 1.0))
+        let l = normalize(vec3(-0.8, 0.75, -1.0))
+        light = max(0.0, dot(n, l)) * 1.2 + 0.3
+
+    let mut ao = 1.0
+    if params.combine_params[0].y > 0.0:
+        ao = material.ao.sample(tc0, material.s_tex).x
+
+    return {
+        color = float4(..(albedo_color * light * ao), 1.0)
+    }

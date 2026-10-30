@@ -1,0 +1,8 @@
+// Translated to SGL from bgfx examples/39-assao/cs_assao_load_counter_clear.sc.
+// Copyright 2018 Attila Kocsis. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding counter:
+    load_counter: mut buffer[uint]
+
+@compute(1, 1, 1) fun main(){counter}:
+    counter.load_counter[0] = 0u
