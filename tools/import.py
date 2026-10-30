@@ -26,11 +26,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def _git(cwd: Path, *argv: str) -> str:
-    proc = subprocess.run(["git", *argv], cwd=cwd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+def _git_bytes(cwd: Path, *argv: str) -> bytes:
+    proc = subprocess.run(["git", *argv], cwd=cwd, capture_output=True)
     if proc.returncode != 0:
-        sys.exit(f"git {' '.join(argv)}: {(proc.stderr or proc.stdout).strip()}")
-    return proc.stdout.strip()
+        sys.exit(f"git {' '.join(argv)}: {proc.stderr.decode(errors='replace').strip()}")
+    return proc.stdout
+
+
+def _git(cwd: Path, *argv: str) -> str:
+    return _git_bytes(cwd, *argv).decode("utf-8", errors="replace").strip()
 
 
 def _matches(rel: str, globs: list[str]) -> bool:
@@ -49,19 +53,25 @@ def main() -> None:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     commit = args.commit or manifest["commit"]
 
+    # Blobs are read straight from the object store, never through a checkout:
+    # a checkout applies core.autocrlf and upstream's .gitattributes, and the copy would no longer be the bytes upstream committed.
     with tempfile.TemporaryDirectory() as tmp:
-        clone = Path(tmp)
-        _git(clone, "init", "-q")
-        _git(clone, "fetch", "-q", "--depth", "1", manifest["upstream"], commit)
-        _git(clone, "checkout", "-q", "FETCH_HEAD")
-        resolved = _git(clone, "rev-parse", "HEAD")
-        date = _git(clone, "log", "-1", "--format=%cs")
+        repo = Path(tmp)
+        _git(repo, "init", "-q", "--bare")
+        _git(repo, "fetch", "-q", "--depth", "1", manifest["upstream"], commit)
+        resolved = _git(repo, "rev-parse", "FETCH_HEAD")
+        date = _git(repo, "log", "-1", "--format=%cs", resolved)
 
-        files = sorted(
-            rel for p in clone.rglob("*") if p.is_file() and ".git" not in p.relative_to(clone).parts
-            for rel in [p.relative_to(clone).as_posix()]
-            if _matches(rel, manifest["include"]) and not _matches(rel, manifest.get("exclude", []))
-        )
+        blobs = {}
+        for entry in _git_bytes(repo, "ls-tree", "-r", "-z", resolved).split(b"\0"):
+            if not entry:
+                continue
+            meta, rel = entry.decode("utf-8").split("\t", 1)
+            _mode, kind, sha = meta.split()
+            if kind == "blob":
+                blobs[rel] = sha
+        files = sorted(rel for rel in blobs
+                       if _matches(rel, manifest["include"]) and not _matches(rel, manifest.get("exclude", [])))
         if not files:
             sys.exit("no upstream file matches `include`")
 
@@ -69,12 +79,12 @@ def main() -> None:
         shutil.rmtree(upstream, ignore_errors=True)
         for rel in files:
             (upstream / rel).parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(clone / rel, upstream / rel)
-        shutil.copyfile(clone / manifest["license_file"], src / "LICENSE")
+            (upstream / rel).write_bytes(_git_bytes(repo, "cat-file", "blob", blobs[rel]))
+        (src / "LICENSE").write_bytes(_git_bytes(repo, "cat-file", "blob", blobs[manifest["license_file"]]))
 
     manifest["commit"] = resolved
     manifest["date"] = date
-    manifest_path.write_text(json.dumps(manifest, indent=4, ensure_ascii=False) + "\n", encoding="utf-8")
+    manifest_path.write_text(json.dumps(manifest, indent=4, ensure_ascii=False) + "\n", encoding="utf-8", newline="\n")
     print(f"{args.source}: {len(files)} files at {resolved[:10]} ({date})")
 
 
