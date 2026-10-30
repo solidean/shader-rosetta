@@ -1,3 +1,13 @@
+shader-rosetta collects third-party shaders, so no single license covers the whole repository.
+
+- A directory that carries its own LICENSE file is under that license, and so is everything below it.
+  That includes our translations of the shaders it holds, which are derived works of them.
+- Everything else (the tooling, the manifests, the documentation) is under the MIT License below.
+
+The readme lists every source, its license, and the commit its files were taken from.
+
+--------------------------------------------------------------------------------
+
 MIT License
 
 Copyright (c) 2026 Solidean
