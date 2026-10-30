@@ -1,0 +1,7 @@
+# Our own files are LF everywhere, whatever the checkout's core.autocrlf says.
+* text=auto eol=lf
+
+# Upstream files and license texts are kept byte for byte: no line-ending conversion, in either direction.
+sources/*/upstream/** -text
+sources/*/LICENSE -text
+sources/*/licenses/** -text

@@ -32,7 +32,32 @@ Every source is recorded with its upstream repository, the commit its files were
 
 | Source | Upstream | Commit | License |
 |---|---|---|---|
-| (none yet) | | | |
+| [bgfx](sources/bgfx/source.json) | [bkaradzic/bgfx](https://github.com/bkaradzic/bgfx) | `b7d0751baa` (2026-10-29) | BSD-2-Clause, with BSD-3-Clause and MIT parts |
+
+bgfx's 368 example shaders are the corpus of Branimir Karadzic's [shader compiler survey](https://bkaradzic.github.io/posts/ideal-shader-compiler/), which makes our numbers comparable with his.
+
+## Layout
+
+```
+sources/<name>/
+├── source.json            upstream, pinned commit, licenses, what is imported
+├── LICENSE                the upstream license, verbatim
+├── licenses/              the texts of third-party licenses that upstream carries no file for
+├── upstream/              the imported files, byte for byte, at their upstream paths
+└── shaders/<group>/<shader>/
+    ├── shader.json        origin, stage, entry points, variants, status per language
+    └── <shader>.hlsl  .glsl  .wgsl  .metal  .sgl
+tools/                     the importer and the harness
+results/                   published benchmark snapshots, one directory per run
+```
+
+- **`upstream/` is replaced wholesale** by `uv run tools/import.py <name>`, so nothing of ours lives in it.
+  `--commit <sha>` moves the pin first.
+- **A shader's directory holds every language side by side**, and is the unit coverage and benchmarks count.
+  A file is named after its shader, so editor tabs stay apart.
+- **`shader.json` says where each language came from**: `upstream`, `generated` (with the tool and its version), `translated`, or `verified` (with the backend the differential check ran on).
+- **Permutations are `variants` in `shader.json`**: an entry point and a set of defines, each counted on its own.
+- `.glsl` is Vulkan GLSL, `.metal` is MSL.
 
 ## Licensing
 
@@ -56,5 +81,7 @@ Not accepted:
 ## Adding a source
 
 1. Check the license against the list above, for every file that is taken, not only the repository's top-level one.
-2. Copy the files unmodified and record the upstream commit they came from.
-3. Put the upstream LICENSE file next to them and add the source to the table above.
+2. Write `sources/<name>/source.json`: the upstream url and commit, its license, and the `include` globs.
+   List every third-party part under `third_party`, with its license and where its text is.
+3. Run `uv run tools/import.py <name>`, which copies the files unmodified and the upstream LICENSE next to them.
+4. Add the source to the table above.

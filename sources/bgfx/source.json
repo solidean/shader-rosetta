@@ -1,0 +1,50 @@
+{
+    "name": "bgfx",
+    "description": "Every shader of the bgfx examples: 120 vertex, 203 fragment and 45 compute, in bgfx's own .sc dialect, with the includes they need.",
+    "upstream": "https://github.com/bkaradzic/bgfx",
+    "commit": "b7d0751baa2463476668da2b87d80fd1e64ae3c0",
+    "date": "2026-10-29",
+    "license": "BSD-2-Clause",
+    "license_file": "LICENSE",
+    "include": [
+        "src/bgfx_shader.sh",
+        "src/bgfx_compute.sh",
+        "examples/**/*.sc",
+        "examples/**/*.sh",
+        "examples/common/s2h/*.hlsl",
+        "examples/46-fsr/*.h"
+    ],
+    "exclude": [],
+    "third_party": [
+        {
+            "paths": [
+                "examples/common/s2h/*"
+            ],
+            "name": "Shader To Human (S2H)",
+            "upstream": "https://github.com/electronicarts/ShaderToHuman",
+            "license": "BSD-3-Clause",
+            "copyright": "Copyright (c) 2024-2025 Electronic Arts Inc.",
+            "license_file": "licenses/ShaderToHuman.txt"
+        },
+        {
+            "paths": [
+                "examples/46-fsr/ffx_a.h",
+                "examples/46-fsr/ffx_fsr1.h"
+            ],
+            "name": "AMD FidelityFX FSR 1",
+            "license": "MIT",
+            "copyright": "Copyright (c) 2021 Advanced Micro Devices, Inc.",
+            "license_file": null
+        },
+        {
+            "paths": [
+                "examples/51-gpufont/vs_slug.sc",
+                "examples/51-gpufont/fs_slug.sc"
+            ],
+            "name": "Slug reference shaders",
+            "license": "MIT",
+            "copyright": "Copyright 2017, by Eric Lengyel.",
+            "license_file": null
+        }
+    ]
+}
