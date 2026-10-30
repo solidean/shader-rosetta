@@ -1,0 +1,36 @@
+{
+    "origin": "upstream/examples/44-sss/fs_screen_space_shadows.sc",
+    "stage": "fragment",
+    "languages": {
+        "hlsl": {
+            "status": "generated",
+            "file": "fs_screen_space_shadows.hlsl",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type fragment --platform windows -p s_5_0 -i ../../src --debug"
+        },
+        "glsl": {
+            "status": "generated",
+            "file": "fs_screen_space_shadows.glsl",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type fragment --platform linux -p 430 -i ../../src --raw"
+        },
+        "wgsl": {
+            "status": "generated",
+            "file": "fs_screen_space_shadows.wgsl",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type fragment --platform linux -p wgsl -i ../../src"
+        },
+        "msl": {
+            "status": "generated",
+            "file": "fs_screen_space_shadows.metal",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type fragment --platform osx -p metal -i ../../src"
+        },
+        "spirv": {
+            "status": "generated",
+            "file": "fs_screen_space_shadows.spv",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type fragment --platform linux -p spirv -i ../../src"
+        }
+    }
+}

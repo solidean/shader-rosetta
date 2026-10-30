@@ -1,0 +1,36 @@
+{
+    "origin": "upstream/examples/23-vectordisplay/fs_vectordisplay_blit.sc",
+    "stage": "fragment",
+    "languages": {
+        "hlsl": {
+            "status": "generated",
+            "file": "fs_vectordisplay_blit.hlsl",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type fragment --platform windows -p s_5_0 -i ../../src --debug"
+        },
+        "glsl": {
+            "status": "generated",
+            "file": "fs_vectordisplay_blit.glsl",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type fragment --platform linux -p 430 -i ../../src --raw"
+        },
+        "wgsl": {
+            "status": "generated",
+            "file": "fs_vectordisplay_blit.wgsl",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type fragment --platform linux -p wgsl -i ../../src"
+        },
+        "msl": {
+            "status": "generated",
+            "file": "fs_vectordisplay_blit.metal",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type fragment --platform osx -p metal -i ../../src"
+        },
+        "spirv": {
+            "status": "generated",
+            "file": "fs_vectordisplay_blit.spv",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type fragment --platform linux -p spirv -i ../../src"
+        }
+    }
+}

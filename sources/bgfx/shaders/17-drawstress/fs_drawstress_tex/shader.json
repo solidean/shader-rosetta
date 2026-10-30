@@ -1,0 +1,36 @@
+{
+    "origin": "upstream/examples/17-drawstress/fs_drawstress_tex.sc",
+    "stage": "fragment",
+    "languages": {
+        "hlsl": {
+            "status": "generated",
+            "file": "fs_drawstress_tex.hlsl",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type fragment --platform windows -p s_5_0 -i ../../src --debug"
+        },
+        "glsl": {
+            "status": "generated",
+            "file": "fs_drawstress_tex.glsl",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type fragment --platform linux -p 430 -i ../../src --raw"
+        },
+        "wgsl": {
+            "status": "generated",
+            "file": "fs_drawstress_tex.wgsl",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type fragment --platform linux -p wgsl -i ../../src"
+        },
+        "msl": {
+            "status": "generated",
+            "file": "fs_drawstress_tex.metal",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type fragment --platform osx -p metal -i ../../src"
+        },
+        "spirv": {
+            "status": "generated",
+            "file": "fs_drawstress_tex.spv",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type fragment --platform linux -p spirv -i ../../src"
+        }
+    }
+}

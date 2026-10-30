@@ -1,0 +1,36 @@
+{
+    "origin": "upstream/examples/common/debugdraw/vs_debugdraw_lines.sc",
+    "stage": "vertex",
+    "languages": {
+        "hlsl": {
+            "status": "generated",
+            "file": "vs_debugdraw_lines.hlsl",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type vertex --platform windows -p s_5_0 -i ../../../src --debug"
+        },
+        "glsl": {
+            "status": "generated",
+            "file": "vs_debugdraw_lines.glsl",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type vertex --platform linux -p 430 -i ../../../src --raw"
+        },
+        "wgsl": {
+            "status": "generated",
+            "file": "vs_debugdraw_lines.wgsl",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type vertex --platform linux -p wgsl -i ../../../src"
+        },
+        "msl": {
+            "status": "generated",
+            "file": "vs_debugdraw_lines.metal",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type vertex --platform osx -p metal -i ../../../src"
+        },
+        "spirv": {
+            "status": "generated",
+            "file": "vs_debugdraw_lines.spv",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type vertex --platform linux -p spirv -i ../../../src"
+        }
+    }
+}

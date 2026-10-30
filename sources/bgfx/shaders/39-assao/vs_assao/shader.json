@@ -1,0 +1,36 @@
+{
+    "origin": "upstream/examples/39-assao/vs_assao.sc",
+    "stage": "vertex",
+    "languages": {
+        "hlsl": {
+            "status": "generated",
+            "file": "vs_assao.hlsl",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type vertex --platform windows -p s_5_0 -i ../../src --debug"
+        },
+        "glsl": {
+            "status": "generated",
+            "file": "vs_assao.glsl",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type vertex --platform linux -p 430 -i ../../src --raw"
+        },
+        "wgsl": {
+            "status": "generated",
+            "file": "vs_assao.wgsl",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type vertex --platform linux -p wgsl -i ../../src"
+        },
+        "msl": {
+            "status": "generated",
+            "file": "vs_assao.metal",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type vertex --platform osx -p metal -i ../../src"
+        },
+        "spirv": {
+            "status": "generated",
+            "file": "vs_assao.spv",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type vertex --platform linux -p spirv -i ../../src"
+        }
+    }
+}

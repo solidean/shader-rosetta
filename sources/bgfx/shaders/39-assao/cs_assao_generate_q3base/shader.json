@@ -1,0 +1,36 @@
+{
+    "origin": "upstream/examples/39-assao/cs_assao_generate_q3base.sc",
+    "stage": "compute",
+    "languages": {
+        "hlsl": {
+            "status": "generated",
+            "file": "cs_assao_generate_q3base.hlsl",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type compute --platform windows -p s_5_0 -i ../../src --debug"
+        },
+        "glsl": {
+            "status": "generated",
+            "file": "cs_assao_generate_q3base.glsl",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type compute --platform linux -p 430 -i ../../src --raw"
+        },
+        "wgsl": {
+            "status": "generated",
+            "file": "cs_assao_generate_q3base.wgsl",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type compute --platform linux -p wgsl -i ../../src"
+        },
+        "msl": {
+            "status": "generated",
+            "file": "cs_assao_generate_q3base.metal",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type compute --platform osx -p metal -i ../../src"
+        },
+        "spirv": {
+            "status": "generated",
+            "file": "cs_assao_generate_q3base.spv",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type compute --platform linux -p spirv -i ../../src"
+        }
+    }
+}

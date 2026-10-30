@@ -1,0 +1,2298 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+float intBitsToFloat(int _x) { return asfloat(_x); }
+float2 intBitsToFloat(uint2 _x) { return asfloat(_x); }
+float3 intBitsToFloat(uint3 _x) { return asfloat(_x); }
+float4 intBitsToFloat(uint4 _x) { return asfloat(_x); }
+
+float uintBitsToFloat(uint _x) { return asfloat(_x); }
+float2 uintBitsToFloat(uint2 _x) { return asfloat(_x); }
+float3 uintBitsToFloat(uint3 _x) { return asfloat(_x); }
+float4 uintBitsToFloat(uint4 _x) { return asfloat(_x); }
+
+uint floatBitsToUint(float _x) { return asuint(_x); }
+uint2 floatBitsToUint(float2 _x) { return asuint(_x); }
+uint3 floatBitsToUint(float3 _x) { return asuint(_x); }
+uint4 floatBitsToUint(float4 _x) { return asuint(_x); }
+
+int floatBitsToInt(float _x) { return asint(_x); }
+int2 floatBitsToInt(float2 _x) { return asint(_x); }
+int3 floatBitsToInt(float3 _x) { return asint(_x); }
+int4 floatBitsToInt(float4 _x) { return asint(_x); }
+
+uint bitfieldReverse(uint _x) { return reversebits(_x); }
+uint2 bitfieldReverse(uint2 _x) { return reversebits(_x); }
+uint3 bitfieldReverse(uint3 _x) { return reversebits(_x); }
+uint4 bitfieldReverse(uint4 _x) { return reversebits(_x); }
+
+uint packHalf2x16(float2 _x)
+{
+return (f32tof16(_x.y)<<16) | f32tof16(_x.x);
+}
+
+float2 unpackHalf2x16(uint _x)
+{
+return float2(f16tof32(_x & 0xffff), f16tof32(_x >> 16) );
+}
+
+struct BgfxSampler2D
+{
+SamplerState m_sampler;
+Texture2D m_texture;
+};
+
+struct BgfxISampler2D
+{
+Texture2D<int4> m_texture;
+};
+
+struct BgfxUSampler2D
+{
+Texture2D<uint4> m_texture;
+};
+
+struct BgfxSampler2DArray
+{
+SamplerState m_sampler;
+Texture2DArray m_texture;
+};
+
+struct BgfxSampler2DShadow
+{
+SamplerComparisonState m_sampler;
+Texture2D m_texture;
+};
+
+struct BgfxSampler2DArrayShadow
+{
+SamplerComparisonState m_sampler;
+Texture2DArray m_texture;
+};
+
+struct BgfxSampler3D
+{
+SamplerState m_sampler;
+Texture3D m_texture;
+};
+
+struct BgfxISampler3D
+{
+Texture3D<int4> m_texture;
+};
+
+struct BgfxUSampler3D
+{
+Texture3D<uint4> m_texture;
+};
+
+struct BgfxSamplerCube
+{
+SamplerState m_sampler;
+TextureCube m_texture;
+};
+
+struct BgfxSamplerCubeArray
+{
+SamplerState m_sampler;
+TextureCubeArray m_texture;
+};
+
+struct BgfxSamplerCubeShadow
+{
+SamplerComparisonState m_sampler;
+TextureCube m_texture;
+};
+
+struct BgfxSampler2DMS
+{
+Texture2DMS<float4> m_texture;
+};
+
+struct BgfxSampler2DMSArray
+{
+Texture2DMSArray<float4> m_texture;
+};
+
+float4 bgfxTexture2D(BgfxSampler2D _sampler, float2 _coord)
+{
+return _sampler.m_texture.Sample(_sampler.m_sampler, _coord);
+}
+
+float4 bgfxTexture2DBias(BgfxSampler2D _sampler, float2 _coord, float _bias)
+{
+return _sampler.m_texture.SampleBias(_sampler.m_sampler, _coord, _bias);
+}
+
+float4 bgfxTexture2DLod(BgfxSampler2D _sampler, float2 _coord, float _level)
+{
+return _sampler.m_texture.SampleLevel(_sampler.m_sampler, _coord, _level);
+}
+
+float4 bgfxTexture2DLodOffset(BgfxSampler2D _sampler, float2 _coord, float _level, int2 _offset)
+{
+return _sampler.m_texture.SampleLevel(_sampler.m_sampler, _coord, _level, _offset);
+}
+
+float4 bgfxTexture2DProj(BgfxSampler2D _sampler, float3 _coord)
+{
+float2 coord = _coord.xy * rcp(_coord.z);
+return _sampler.m_texture.Sample(_sampler.m_sampler, coord);
+}
+
+float4 bgfxTexture2DProj(BgfxSampler2D _sampler, float4 _coord)
+{
+float2 coord = _coord.xy * rcp(_coord.w);
+return _sampler.m_texture.Sample(_sampler.m_sampler, coord);
+}
+
+float4 bgfxTexture2DGrad(BgfxSampler2D _sampler, float2 _coord, float2 _dPdx, float2 _dPdy)
+{
+return _sampler.m_texture.SampleGrad(_sampler.m_sampler, _coord, _dPdx, _dPdy);
+}
+
+float4 bgfxTexture2DArray(BgfxSampler2DArray _sampler, float3 _coord)
+{
+return _sampler.m_texture.Sample(_sampler.m_sampler, _coord);
+}
+
+float4 bgfxTexture2DArrayLod(BgfxSampler2DArray _sampler, float3 _coord, float _lod)
+{
+return _sampler.m_texture.SampleLevel(_sampler.m_sampler, _coord, _lod);
+}
+
+float4 bgfxTexture2DArrayLodOffset(BgfxSampler2DArray _sampler, float3 _coord, float _level, int2 _offset)
+{
+return _sampler.m_texture.SampleLevel(_sampler.m_sampler, _coord, _level, _offset);
+}
+
+float3 bgfxTextureSize(BgfxSampler2DArray _sampler, int _lod)
+{
+float3 result;
+float numberOfMipMapLevels;
+_sampler.m_texture.GetDimensions(_lod, result.x, result.y, result.z, numberOfMipMapLevels);
+return result;
+}
+
+float bgfxShadow2D(BgfxSampler2DShadow _sampler, float3 _coord)
+{
+return _sampler.m_texture.SampleCmpLevelZero(_sampler.m_sampler, _coord.xy, _coord.z);
+}
+
+float bgfxShadow2DProj(BgfxSampler2DShadow _sampler, float4 _coord)
+{
+float3 coord = _coord.xyz * rcp(_coord.w);
+return _sampler.m_texture.SampleCmpLevelZero(_sampler.m_sampler, coord.xy, coord.z);
+}
+
+float2 bgfxTextureSize(BgfxSampler2DShadow _sampler, int _lod)
+{
+float2 result;
+float numberOfMipMapLevels;
+_sampler.m_texture.GetDimensions(_lod, result.x, result.y, numberOfMipMapLevels);
+return result;
+}
+
+float bgfxShadow2DArray(BgfxSampler2DArrayShadow _sampler, float4 _coord)
+{
+return _sampler.m_texture.SampleCmpLevelZero(_sampler.m_sampler, _coord.xyz, _coord.w);
+}
+
+float3 bgfxTextureSize(BgfxSampler2DArrayShadow _sampler, int _lod)
+{
+float3 result;
+float numberOfMipMapLevels;
+_sampler.m_texture.GetDimensions(_lod, result.x, result.y, result.z, numberOfMipMapLevels);
+return result;
+}
+
+float4 bgfxTexture3D(BgfxSampler3D _sampler, float3 _coord)
+{
+return _sampler.m_texture.Sample(_sampler.m_sampler, _coord);
+}
+
+float4 bgfxTexture3DLod(BgfxSampler3D _sampler, float3 _coord, float _level)
+{
+return _sampler.m_texture.SampleLevel(_sampler.m_sampler, _coord, _level);
+}
+
+int4 bgfxTexture3D(BgfxISampler3D _sampler, float3 _coord)
+{
+uint3 size;
+_sampler.m_texture.GetDimensions(size.x, size.y, size.z);
+return _sampler.m_texture.Load(int4(_coord * size, 0) );
+}
+
+uint4 bgfxTexture3D(BgfxUSampler3D _sampler, float3 _coord)
+{
+uint3 size;
+_sampler.m_texture.GetDimensions(size.x, size.y, size.z);
+return _sampler.m_texture.Load(int4(_coord * size, 0) );
+}
+
+float4 bgfxTextureCube(BgfxSamplerCube _sampler, float3 _coord)
+{
+return _sampler.m_texture.Sample(_sampler.m_sampler, _coord);
+}
+
+float4 bgfxTextureCubeBias(BgfxSamplerCube _sampler, float3 _coord, float _bias)
+{
+return _sampler.m_texture.SampleBias(_sampler.m_sampler, _coord, _bias);
+}
+
+float4 bgfxTextureCubeArray(BgfxSamplerCubeArray _sampler, float4 _coord)
+{
+return _sampler.m_texture.Sample(_sampler.m_sampler, _coord);
+}
+
+float4 bgfxTextureCubeArrayLod(BgfxSamplerCubeArray _sampler, float4 _coord, float _level)
+{
+return _sampler.m_texture.SampleLevel(_sampler.m_sampler, _coord, _level);
+}
+
+float4 bgfxTextureCubeLod(BgfxSamplerCube _sampler, float3 _coord, float _level)
+{
+return _sampler.m_texture.SampleLevel(_sampler.m_sampler, _coord, _level);
+}
+
+float4 bgfxTextureCubeGrad(BgfxSamplerCube _sampler, float3 _coord, float3 _dPdx, float3 _dPdy)
+{
+return _sampler.m_texture.SampleGrad(_sampler.m_sampler, _coord, _dPdx, _dPdy);
+}
+
+float2 bgfxTextureSize(BgfxSamplerCube _sampler, int _lod)
+{
+float2 result;
+float numberOfMipMapLevels;
+_sampler.m_texture.GetDimensions(_lod, result.x, result.y, numberOfMipMapLevels);
+return result;
+}
+
+float3 bgfxTextureSize(BgfxSamplerCubeArray _sampler, int _lod)
+{
+float3 result;
+float numberOfMipMapLevels;
+_sampler.m_texture.GetDimensions(_lod, result.x, result.y, result.z, numberOfMipMapLevels);
+return result;
+}
+
+float2 bgfxTextureSize(BgfxSamplerCubeShadow _sampler, int _lod)
+{
+float2 result;
+float numberOfMipMapLevels;
+_sampler.m_texture.GetDimensions(_lod, result.x, result.y, numberOfMipMapLevels);
+return result;
+}
+
+float bgfxShadowCube(BgfxSamplerCubeShadow _sampler, float4 _coord)
+{
+return _sampler.m_texture.SampleCmpLevelZero(_sampler.m_sampler, _coord.xyz, _coord.w);
+}
+
+float4 bgfxTexelFetch(BgfxSampler2D _sampler, int2 _coord, int _lod)
+{
+return _sampler.m_texture.Load(int3(_coord, _lod) );
+}
+
+float4 bgfxTexelFetchOffset(BgfxSampler2D _sampler, int2 _coord, int _lod, int2 _offset)
+{
+return _sampler.m_texture.Load(int3(_coord, _lod), _offset );
+}
+
+float2 bgfxTextureSize(BgfxSampler2D _sampler, int _lod)
+{
+float2 result;
+float numberOfMipMapLevels;
+_sampler.m_texture.GetDimensions(_lod, result.x, result.y, numberOfMipMapLevels);
+return result;
+}
+
+float2 bgfxTextureSize(BgfxISampler2D _sampler, int _lod)
+{
+float2 result;
+float numberOfMipMapLevels;
+_sampler.m_texture.GetDimensions(_lod, result.x, result.y, numberOfMipMapLevels);
+return result;
+}
+
+float2 bgfxTextureSize(BgfxUSampler2D _sampler, int _lod)
+{
+float2 result;
+float numberOfMipMapLevels;
+_sampler.m_texture.GetDimensions(_lod, result.x, result.y, numberOfMipMapLevels);
+return result;
+}
+
+float4 bgfxTextureGather0(BgfxSampler2D _sampler, float2 _coord)
+{
+return _sampler.m_texture.GatherRed(_sampler.m_sampler, _coord);
+}
+
+float4 bgfxTextureGather1(BgfxSampler2D _sampler, float2 _coord)
+{
+return _sampler.m_texture.GatherGreen(_sampler.m_sampler, _coord);
+}
+
+float4 bgfxTextureGather2(BgfxSampler2D _sampler, float2 _coord)
+{
+return _sampler.m_texture.GatherBlue(_sampler.m_sampler, _coord);
+}
+
+float4 bgfxTextureGather3(BgfxSampler2D _sampler, float2 _coord)
+{
+return _sampler.m_texture.GatherAlpha(_sampler.m_sampler, _coord);
+}
+
+float4 bgfxTextureGatherOffset0(BgfxSampler2D _sampler, float2 _coord, int2 _offset)
+{
+return _sampler.m_texture.GatherRed(_sampler.m_sampler, _coord, _offset);
+}
+
+float4 bgfxTextureGatherOffset1(BgfxSampler2D _sampler, float2 _coord, int2 _offset)
+{
+return _sampler.m_texture.GatherGreen(_sampler.m_sampler, _coord, _offset);
+}
+
+float4 bgfxTextureGatherOffset2(BgfxSampler2D _sampler, float2 _coord, int2 _offset)
+{
+return _sampler.m_texture.GatherBlue(_sampler.m_sampler, _coord, _offset);
+}
+
+float4 bgfxTextureGatherOffset3(BgfxSampler2D _sampler, float2 _coord, int2 _offset)
+{
+return _sampler.m_texture.GatherAlpha(_sampler.m_sampler, _coord, _offset);
+}
+
+float4 bgfxTextureGather0(BgfxSampler2DArray _sampler, float3 _coord)
+{
+return _sampler.m_texture.GatherRed(_sampler.m_sampler, _coord);
+}
+
+float4 bgfxTextureGather1(BgfxSampler2DArray _sampler, float3 _coord)
+{
+return _sampler.m_texture.GatherGreen(_sampler.m_sampler, _coord);
+}
+
+float4 bgfxTextureGather2(BgfxSampler2DArray _sampler, float3 _coord)
+{
+return _sampler.m_texture.GatherBlue(_sampler.m_sampler, _coord);
+}
+
+float4 bgfxTextureGather3(BgfxSampler2DArray _sampler, float3 _coord)
+{
+return _sampler.m_texture.GatherAlpha(_sampler.m_sampler, _coord);
+}
+
+int4 bgfxTexelFetch(BgfxISampler2D _sampler, int2 _coord, int _lod)
+{
+return _sampler.m_texture.Load(int3(_coord, _lod) );
+}
+
+uint4 bgfxTexelFetch(BgfxUSampler2D _sampler, int2 _coord, int _lod)
+{
+return _sampler.m_texture.Load(int3(_coord, _lod) );
+}
+
+float4 bgfxTexelFetch(BgfxSampler2DMS _sampler, int2 _coord, int _sampleIdx)
+{
+return _sampler.m_texture.Load(_coord, _sampleIdx);
+}
+
+float4 bgfxTexelFetch(BgfxSampler2DMSArray _sampler, int3 _coord, int _sampleIdx)
+{
+return _sampler.m_texture.Load(_coord, _sampleIdx);
+}
+
+float4 bgfxTexelFetch(BgfxSampler2DArray _sampler, int3 _coord, int _lod)
+{
+return _sampler.m_texture.Load(int4(_coord, _lod) );
+}
+
+float4 bgfxTexelFetch(BgfxSampler3D _sampler, int3 _coord, int _lod)
+{
+return _sampler.m_texture.Load(int4(_coord, _lod) );
+}
+
+int4 bgfxTexelFetch(BgfxISampler3D _sampler, int3 _coord, int _lod)
+{
+return _sampler.m_texture.Load(int4(_coord, _lod) );
+}
+
+uint4 bgfxTexelFetch(BgfxUSampler3D _sampler, int3 _coord, int _lod)
+{
+return _sampler.m_texture.Load(int4(_coord, _lod) );
+}
+
+float3 bgfxTextureSize(BgfxSampler3D _sampler, int _lod)
+{
+float3 result;
+float numberOfMipMapLevels;
+_sampler.m_texture.GetDimensions(_lod, result.x, result.y, result.z, numberOfMipMapLevels);
+return result;
+}
+
+float3 bgfxTextureSize(BgfxISampler3D _sampler, int _lod)
+{
+float3 result;
+float numberOfMipMapLevels;
+_sampler.m_texture.GetDimensions(_lod, result.x, result.y, result.z, numberOfMipMapLevels);
+return result;
+}
+
+float3 bgfxTextureSize(BgfxUSampler3D _sampler, int _lod)
+{
+float3 result;
+float numberOfMipMapLevels;
+_sampler.m_texture.GetDimensions(_lod, result.x, result.y, result.z, numberOfMipMapLevels);
+return result;
+}
+
+float4 bgfxTexture3DGrad(BgfxSampler3D _sampler, float3 _coord, float3 _dPdx, float3 _dPdy)
+{
+return _sampler.m_texture.SampleGrad(_sampler.m_sampler, _coord, _dPdx, _dPdy);
+}
+
+float4 bgfxTexture3DLodOffset(BgfxSampler3D _sampler, float3 _coord, float _level, int3 _offset)
+{
+return _sampler.m_texture.SampleLevel(_sampler.m_sampler, _coord, _level, _offset);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+bool2 lessThan(float2 _a, float2 _b) { return _a < _b; }
+bool3 lessThan(float3 _a, float3 _b) { return _a < _b; }
+bool4 lessThan(float4 _a, float4 _b) { return _a < _b; }
+
+bool2 lessThanEqual(float2 _a, float2 _b) { return _a <= _b; }
+bool3 lessThanEqual(float3 _a, float3 _b) { return _a <= _b; }
+bool4 lessThanEqual(float4 _a, float4 _b) { return _a <= _b; }
+
+bool2 greaterThan(float2 _a, float2 _b) { return _a > _b; }
+bool3 greaterThan(float3 _a, float3 _b) { return _a > _b; }
+bool4 greaterThan(float4 _a, float4 _b) { return _a > _b; }
+
+bool2 greaterThanEqual(float2 _a, float2 _b) { return _a >= _b; }
+bool3 greaterThanEqual(float3 _a, float3 _b) { return _a >= _b; }
+bool4 greaterThanEqual(float4 _a, float4 _b) { return _a >= _b; }
+
+bool2 notEqual(float2 _a, float2 _b) { return _a != _b; }
+bool3 notEqual(float3 _a, float3 _b) { return _a != _b; }
+bool4 notEqual(float4 _a, float4 _b) { return _a != _b; }
+
+bool2 equal(float2 _a, float2 _b) { return _a == _b; }
+bool3 equal(float3 _a, float3 _b) { return _a == _b; }
+bool4 equal(float4 _a, float4 _b) { return _a == _b; }
+
+float mix(float _a, float _b, float _t) { return lerp(_a, _b, _t); }
+float2 mix(float2 _a, float2 _b, float2 _t) { return lerp(_a, _b, _t); }
+float3 mix(float3 _a, float3 _b, float3 _t) { return lerp(_a, _b, _t); }
+float4 mix(float4 _a, float4 _b, float4 _t) { return lerp(_a, _b, _t); }
+
+float mod(float _a, float _b) { return _a - _b * floor(_a / _b); }
+float2 mod(float2 _a, float2 _b) { return _a - _b * floor(_a / _b); }
+float3 mod(float3 _a, float3 _b) { return _a - _b * floor(_a / _b); }
+float4 mod(float4 _a, float4 _b) { return _a - _b * floor(_a / _b); }
+
+
+float2 vec2_splat(float _x) { return float2(_x, _x); }
+float3 vec3_splat(float _x) { return float3(_x, _x, _x); }
+float4 vec4_splat(float _x) { return float4(_x, _x, _x, _x); }
+
+uint2 uvec2_splat(uint _x) { return uint2(_x, _x); }
+uint3 uvec3_splat(uint _x) { return uint3(_x, _x, _x); }
+uint4 uvec4_splat(uint _x) { return uint4(_x, _x, _x, _x); }
+
+
+float4x4 mtxFromRows(float4 _0, float4 _1, float4 _2, float4 _3)
+{
+return float4x4(_0, _1, _2, _3);
+}
+
+float4x4 mtxFromCols(float4 _0, float4 _1, float4 _2, float4 _3)
+{
+return transpose(float4x4(_0, _1, _2, _3) );
+}
+
+float3x3 mtxFromRows(float3 _0, float3 _1, float3 _2)
+{
+return float3x3(_0, _1, _2);
+}
+
+float3x3 mtxFromCols(float3 _0, float3 _1, float3 _2)
+{
+return transpose(float3x3(_0, _1, _2) );
+}
+
+float3x4 mtxFromRows(float4 _0, float4 _1, float4 _2)
+{
+return float3x4(_0, _1, _2);
+}
+
+float3 mtxGetRow(float3x3 _mtx, int _row)
+{
+return float3(_mtx[_row]);
+}
+
+float3 mtxGetColumn(float3x3 _mtx, int _column)
+{
+return float3(_mtx[0][_column], _mtx[1][_column], _mtx[2][_column]);
+}
+
+float4 mtxGetRow(float3x4 _mtx, int _row)
+{
+return float4(_mtx[_row]);
+}
+
+float3 mtxGetColumn(float3x4 _mtx, int _column)
+{
+return float3(_mtx[0][_column], _mtx[1][_column], _mtx[2][_column]);
+}
+
+float4 mtxGetRow(float4x4 _mtx, int _row)
+{
+return float4(_mtx[_row]);
+}
+
+float4 mtxGetColumn(float4x4 _mtx, int _column)
+{
+return float4(_mtx[0][_column], _mtx[1][_column], _mtx[2][_column], _mtx[3][_column]);
+}
+
+float mtxGetElement(float3x3 _mtx, int _column, int _row)
+{
+return _mtx[_row][_column];
+}
+
+float mtxGetElement(float4x4 _mtx, int _column, int _row)
+{
+return _mtx[_row][_column];
+}
+
+float select(bool _cond, float _true, float _false) { return _cond ? _true : _false; }
+float2 select(bool _cond, float2 _true, float2 _false) { return _cond ? _true : _false; }
+float3 select(bool _cond, float3 _true, float3 _false) { return _cond ? _true : _false; }
+float4 select(bool _cond, float4 _true, float4 _false) { return _cond ? _true : _false; }
+float2 select(bool2 _cond, float2 _true, float2 _false) { return (float2(_cond) * _true) + (float2((!_cond) ) * _false); }
+float3 select(bool3 _cond, float3 _true, float3 _false) { return (float3(_cond) * _true) + (float3((!_cond) ) * _false); }
+float4 select(bool4 _cond, float4 _true, float4 _false) { return (float4(_cond) * _true) + (float4((!_cond) ) * _false); }
+int select(bool _cond, int _true, int _false) { return _cond ? _true : _false; }
+int2 select(bool _cond, int2 _true, int2 _false) { return _cond ? _true : _false; }
+int3 select(bool _cond, int3 _true, int3 _false) { return _cond ? _true : _false; }
+int4 select(bool _cond, int4 _true, int4 _false) { return _cond ? _true : _false; }
+int2 select(bool2 _cond, int2 _true, int2 _false) { return (int2(_cond) * _true) + (int2((!_cond) ) * _false); }
+int3 select(bool3 _cond, int3 _true, int3 _false) { return (int3(_cond) * _true) + (int3((!_cond) ) * _false); }
+int4 select(bool4 _cond, int4 _true, int4 _false) { return (int4(_cond) * _true) + (int4((!_cond) ) * _false); }
+uint select(bool _cond, uint _true, uint _false) { return _cond ? _true : _false; }
+uint2 select(bool _cond, uint2 _true, uint2 _false) { return _cond ? _true : _false; }
+uint3 select(bool _cond, uint3 _true, uint3 _false) { return _cond ? _true : _false; }
+uint4 select(bool _cond, uint4 _true, uint4 _false) { return _cond ? _true : _false; }
+uint2 select(bool2 _cond, uint2 _true, uint2 _false) { return (uint2(_cond) * _true) + (uint2((!_cond) ) * _false); }
+uint3 select(bool3 _cond, uint3 _true, uint3 _false) { return (uint3(_cond) * _true) + (uint3((!_cond) ) * _false); }
+uint4 select(bool4 _cond, uint4 _true, uint4 _false) { return (uint4(_cond) * _true) + (uint4((!_cond) ) * _false); }
+
+static float4 u_viewRect;
+static float4 u_viewTexel;
+static float4x4 u_view;
+static float4x4 u_invView;
+static float4x4 u_proj;
+static float4x4 u_invProj;
+static float4x4 u_viewProj;
+static float4x4 u_invViewProj;
+static float4x4 u_modelView;
+static float4x4 u_invModelView;
+static float4x4 u_modelViewProj;
+static float4 u_alphaRef4;
+static float4x4 u_model[1];
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+float4 imageLoad(Texture2D<float> _image, int2 _uv) { return _image[_uv].xxxx; } int2 imageSize(Texture2D<float> _image) { uint2 result; _image.GetDimensions(result.x, result.y); return int2(result); } float4 imageLoad(RWTexture2D<float> _image, int2 _uv) { return _image[_uv].xxxx; } void imageStore(RWTexture2D<float> _image, int2 _uv, float4 _value) { _image[_uv] = _value.x; } int2 imageSize(RWTexture2D<float> _image) { uint2 result; _image.GetDimensions(result.x, result.y); return int2(result); } float4 imageLoad(Texture2DArray<float> _image, int3 _uvw) { return _image[_uvw].xxxx; } int3 imageSize(Texture2DArray<float> _image) { uint3 result; _image.GetDimensions(result.x, result.y, result.z); return int3(result); } float4 imageLoad(RWTexture2DArray<float> _image, int3 _uvw) { return _image[_uvw].xxxx; } void imageStore(RWTexture2DArray<float> _image, int3 _uvw, float4 _value) { _image[_uvw] = _value.x; } int3 imageSize(RWTexture2DArray<float> _image) { uint3 result; _image.GetDimensions(result.x, result.y, result.z); return int3(result); } float4 imageLoad(Texture3D<float> _image, int3 _uvw) { return _image[_uvw].xxxx; } int3 imageSize(Texture3D<float> _image) { uint3 result; _image.GetDimensions(result.x, result.y, result.z); return int3(result); } float4 imageLoad(RWTexture3D<float> _image, int3 _uvw) { return _image[_uvw].xxxx; } void imageStore(RWTexture3D<float> _image, int3 _uvw, float4 _value) { _image[_uvw] = _value.x; } int3 imageSize(RWTexture3D<float> _image) { uint3 result; _image.GetDimensions(result.x, result.y, result.z); return int3(result); }
+float4 imageLoad(Texture2D<float2> _image, int2 _uv) { return _image[_uv].xyyy; } int2 imageSize(Texture2D<float2> _image) { uint2 result; _image.GetDimensions(result.x, result.y); return int2(result); } float4 imageLoad(RWTexture2D<float2> _image, int2 _uv) { return _image[_uv].xyyy; } void imageStore(RWTexture2D<float2> _image, int2 _uv, float4 _value) { _image[_uv] = _value.xy; } int2 imageSize(RWTexture2D<float2> _image) { uint2 result; _image.GetDimensions(result.x, result.y); return int2(result); } float4 imageLoad(Texture2DArray<float2> _image, int3 _uvw) { return _image[_uvw].xyyy; } int3 imageSize(Texture2DArray<float2> _image) { uint3 result; _image.GetDimensions(result.x, result.y, result.z); return int3(result); } float4 imageLoad(RWTexture2DArray<float2> _image, int3 _uvw) { return _image[_uvw].xyyy; } void imageStore(RWTexture2DArray<float2> _image, int3 _uvw, float4 _value) { _image[_uvw] = _value.xy; } int3 imageSize(RWTexture2DArray<float2> _image) { uint3 result; _image.GetDimensions(result.x, result.y, result.z); return int3(result); } float4 imageLoad(Texture3D<float2> _image, int3 _uvw) { return _image[_uvw].xyyy; } int3 imageSize(Texture3D<float2> _image) { uint3 result; _image.GetDimensions(result.x, result.y, result.z); return int3(result); } float4 imageLoad(RWTexture3D<float2> _image, int3 _uvw) { return _image[_uvw].xyyy; } void imageStore(RWTexture3D<float2> _image, int3 _uvw, float4 _value) { _image[_uvw] = _value.xy; } int3 imageSize(RWTexture3D<float2> _image) { uint3 result; _image.GetDimensions(result.x, result.y, result.z); return int3(result); }
+float4 imageLoad(Texture2D<float4> _image, int2 _uv) { return _image[_uv].xyzw; } int2 imageSize(Texture2D<float4> _image) { uint2 result; _image.GetDimensions(result.x, result.y); return int2(result); } float4 imageLoad(RWTexture2D<float4> _image, int2 _uv) { return _image[_uv].xyzw; } void imageStore(RWTexture2D<float4> _image, int2 _uv, float4 _value) { _image[_uv] = _value.xyzw; } int2 imageSize(RWTexture2D<float4> _image) { uint2 result; _image.GetDimensions(result.x, result.y); return int2(result); } float4 imageLoad(Texture2DArray<float4> _image, int3 _uvw) { return _image[_uvw].xyzw; } int3 imageSize(Texture2DArray<float4> _image) { uint3 result; _image.GetDimensions(result.x, result.y, result.z); return int3(result); } float4 imageLoad(RWTexture2DArray<float4> _image, int3 _uvw) { return _image[_uvw].xyzw; } void imageStore(RWTexture2DArray<float4> _image, int3 _uvw, float4 _value) { _image[_uvw] = _value.xyzw; } int3 imageSize(RWTexture2DArray<float4> _image) { uint3 result; _image.GetDimensions(result.x, result.y, result.z); return int3(result); } float4 imageLoad(Texture3D<float4> _image, int3 _uvw) { return _image[_uvw].xyzw; } int3 imageSize(Texture3D<float4> _image) { uint3 result; _image.GetDimensions(result.x, result.y, result.z); return int3(result); } float4 imageLoad(RWTexture3D<float4> _image, int3 _uvw) { return _image[_uvw].xyzw; } void imageStore(RWTexture3D<float4> _image, int3 _uvw, float4 _value) { _image[_uvw] = _value.xyzw; } int3 imageSize(RWTexture3D<float4> _image) { uint3 result; _image.GetDimensions(result.x, result.y, result.z); return int3(result); }
+
+uint4 imageLoad(Texture2D<uint> _image, int2 _uv) { return _image[_uv].xxxx; } int2 imageSize(Texture2D<uint> _image) { uint2 result; _image.GetDimensions(result.x, result.y); return int2(result); } uint4 imageLoad(RWTexture2D<uint> _image, int2 _uv) { return _image[_uv].xxxx; } void imageStore(RWTexture2D<uint> _image, int2 _uv, uint4 _value) { _image[_uv] = _value.x; } int2 imageSize(RWTexture2D<uint> _image) { uint2 result; _image.GetDimensions(result.x, result.y); return int2(result); } uint4 imageLoad(Texture2DArray<uint> _image, int3 _uvw) { return _image[_uvw].xxxx; } int3 imageSize(Texture2DArray<uint> _image) { uint3 result; _image.GetDimensions(result.x, result.y, result.z); return int3(result); } uint4 imageLoad(RWTexture2DArray<uint> _image, int3 _uvw) { return _image[_uvw].xxxx; } void imageStore(RWTexture2DArray<uint> _image, int3 _uvw, uint4 _value) { _image[_uvw] = _value.x; } int3 imageSize(RWTexture2DArray<uint> _image) { uint3 result; _image.GetDimensions(result.x, result.y, result.z); return int3(result); } uint4 imageLoad(Texture3D<uint> _image, int3 _uvw) { return _image[_uvw].xxxx; } int3 imageSize(Texture3D<uint> _image) { uint3 result; _image.GetDimensions(result.x, result.y, result.z); return int3(result); } uint4 imageLoad(RWTexture3D<uint> _image, int3 _uvw) { return _image[_uvw].xxxx; } void imageStore(RWTexture3D<uint> _image, int3 _uvw, uint4 _value) { _image[_uvw] = _value.x; } int3 imageSize(RWTexture3D<uint> _image) { uint3 result; _image.GetDimensions(result.x, result.y, result.z); return int3(result); }
+uint4 imageLoad(Texture2D<uint2> _image, int2 _uv) { return _image[_uv].xyyy; } int2 imageSize(Texture2D<uint2> _image) { uint2 result; _image.GetDimensions(result.x, result.y); return int2(result); } uint4 imageLoad(RWTexture2D<uint2> _image, int2 _uv) { return _image[_uv].xyyy; } void imageStore(RWTexture2D<uint2> _image, int2 _uv, uint4 _value) { _image[_uv] = _value.xy; } int2 imageSize(RWTexture2D<uint2> _image) { uint2 result; _image.GetDimensions(result.x, result.y); return int2(result); } uint4 imageLoad(Texture2DArray<uint2> _image, int3 _uvw) { return _image[_uvw].xyyy; } int3 imageSize(Texture2DArray<uint2> _image) { uint3 result; _image.GetDimensions(result.x, result.y, result.z); return int3(result); } uint4 imageLoad(RWTexture2DArray<uint2> _image, int3 _uvw) { return _image[_uvw].xyyy; } void imageStore(RWTexture2DArray<uint2> _image, int3 _uvw, uint4 _value) { _image[_uvw] = _value.xy; } int3 imageSize(RWTexture2DArray<uint2> _image) { uint3 result; _image.GetDimensions(result.x, result.y, result.z); return int3(result); } uint4 imageLoad(Texture3D<uint2> _image, int3 _uvw) { return _image[_uvw].xyyy; } int3 imageSize(Texture3D<uint2> _image) { uint3 result; _image.GetDimensions(result.x, result.y, result.z); return int3(result); } uint4 imageLoad(RWTexture3D<uint2> _image, int3 _uvw) { return _image[_uvw].xyyy; } void imageStore(RWTexture3D<uint2> _image, int3 _uvw, uint4 _value) { _image[_uvw] = _value.xy; } int3 imageSize(RWTexture3D<uint2> _image) { uint3 result; _image.GetDimensions(result.x, result.y, result.z); return int3(result); }
+uint4 imageLoad(Texture2D<uint4> _image, int2 _uv) { return _image[_uv].xyzw; } int2 imageSize(Texture2D<uint4> _image) { uint2 result; _image.GetDimensions(result.x, result.y); return int2(result); } uint4 imageLoad(RWTexture2D<uint4> _image, int2 _uv) { return _image[_uv].xyzw; } void imageStore(RWTexture2D<uint4> _image, int2 _uv, uint4 _value) { _image[_uv] = _value.xyzw; } int2 imageSize(RWTexture2D<uint4> _image) { uint2 result; _image.GetDimensions(result.x, result.y); return int2(result); } uint4 imageLoad(Texture2DArray<uint4> _image, int3 _uvw) { return _image[_uvw].xyzw; } int3 imageSize(Texture2DArray<uint4> _image) { uint3 result; _image.GetDimensions(result.x, result.y, result.z); return int3(result); } uint4 imageLoad(RWTexture2DArray<uint4> _image, int3 _uvw) { return _image[_uvw].xyzw; } void imageStore(RWTexture2DArray<uint4> _image, int3 _uvw, uint4 _value) { _image[_uvw] = _value.xyzw; } int3 imageSize(RWTexture2DArray<uint4> _image) { uint3 result; _image.GetDimensions(result.x, result.y, result.z); return int3(result); } uint4 imageLoad(Texture3D<uint4> _image, int3 _uvw) { return _image[_uvw].xyzw; } int3 imageSize(Texture3D<uint4> _image) { uint3 result; _image.GetDimensions(result.x, result.y, result.z); return int3(result); } uint4 imageLoad(RWTexture3D<uint4> _image, int3 _uvw) { return _image[_uvw].xyzw; } void imageStore(RWTexture3D<uint4> _image, int3 _uvw, uint4 _value) { _image[_uvw] = _value.xyzw; } int3 imageSize(RWTexture3D<uint4> _image) { uint3 result; _image.GetDimensions(result.x, result.y, result.z); return int3(result); }
+
+float4 imageLoad(Texture2D<unorm float> _image, int2 _uv) { return _image[_uv].xxxx; } int2 imageSize(Texture2D<unorm float> _image) { uint2 result; _image.GetDimensions(result.x, result.y); return int2(result); } float4 imageLoad(RWTexture2D<unorm float> _image, int2 _uv) { return _image[_uv].xxxx; } void imageStore(RWTexture2D<unorm float> _image, int2 _uv, float4 _value) { _image[_uv] = _value.x; } int2 imageSize(RWTexture2D<unorm float> _image) { uint2 result; _image.GetDimensions(result.x, result.y); return int2(result); } float4 imageLoad(Texture2DArray<unorm float> _image, int3 _uvw) { return _image[_uvw].xxxx; } int3 imageSize(Texture2DArray<unorm float> _image) { uint3 result; _image.GetDimensions(result.x, result.y, result.z); return int3(result); } float4 imageLoad(RWTexture2DArray<unorm float> _image, int3 _uvw) { return _image[_uvw].xxxx; } void imageStore(RWTexture2DArray<unorm float> _image, int3 _uvw, float4 _value) { _image[_uvw] = _value.x; } int3 imageSize(RWTexture2DArray<unorm float> _image) { uint3 result; _image.GetDimensions(result.x, result.y, result.z); return int3(result); } float4 imageLoad(Texture3D<unorm float> _image, int3 _uvw) { return _image[_uvw].xxxx; } int3 imageSize(Texture3D<unorm float> _image) { uint3 result; _image.GetDimensions(result.x, result.y, result.z); return int3(result); } float4 imageLoad(RWTexture3D<unorm float> _image, int3 _uvw) { return _image[_uvw].xxxx; } void imageStore(RWTexture3D<unorm float> _image, int3 _uvw, float4 _value) { _image[_uvw] = _value.x; } int3 imageSize(RWTexture3D<unorm float> _image) { uint3 result; _image.GetDimensions(result.x, result.y, result.z); return int3(result); }
+float4 imageLoad(Texture2D<unorm float2> _image, int2 _uv) { return _image[_uv].xyyy; } int2 imageSize(Texture2D<unorm float2> _image) { uint2 result; _image.GetDimensions(result.x, result.y); return int2(result); } float4 imageLoad(RWTexture2D<unorm float2> _image, int2 _uv) { return _image[_uv].xyyy; } void imageStore(RWTexture2D<unorm float2> _image, int2 _uv, float4 _value) { _image[_uv] = _value.xy; } int2 imageSize(RWTexture2D<unorm float2> _image) { uint2 result; _image.GetDimensions(result.x, result.y); return int2(result); } float4 imageLoad(Texture2DArray<unorm float2> _image, int3 _uvw) { return _image[_uvw].xyyy; } int3 imageSize(Texture2DArray<unorm float2> _image) { uint3 result; _image.GetDimensions(result.x, result.y, result.z); return int3(result); } float4 imageLoad(RWTexture2DArray<unorm float2> _image, int3 _uvw) { return _image[_uvw].xyyy; } void imageStore(RWTexture2DArray<unorm float2> _image, int3 _uvw, float4 _value) { _image[_uvw] = _value.xy; } int3 imageSize(RWTexture2DArray<unorm float2> _image) { uint3 result; _image.GetDimensions(result.x, result.y, result.z); return int3(result); } float4 imageLoad(Texture3D<unorm float2> _image, int3 _uvw) { return _image[_uvw].xyyy; } int3 imageSize(Texture3D<unorm float2> _image) { uint3 result; _image.GetDimensions(result.x, result.y, result.z); return int3(result); } float4 imageLoad(RWTexture3D<unorm float2> _image, int3 _uvw) { return _image[_uvw].xyyy; } void imageStore(RWTexture3D<unorm float2> _image, int3 _uvw, float4 _value) { _image[_uvw] = _value.xy; } int3 imageSize(RWTexture3D<unorm float2> _image) { uint3 result; _image.GetDimensions(result.x, result.y, result.z); return int3(result); }
+float4 imageLoad(Texture2D<unorm float4> _image, int2 _uv) { return _image[_uv].xyzw; } int2 imageSize(Texture2D<unorm float4> _image) { uint2 result; _image.GetDimensions(result.x, result.y); return int2(result); } float4 imageLoad(RWTexture2D<unorm float4> _image, int2 _uv) { return _image[_uv].xyzw; } void imageStore(RWTexture2D<unorm float4> _image, int2 _uv, float4 _value) { _image[_uv] = _value.xyzw; } int2 imageSize(RWTexture2D<unorm float4> _image) { uint2 result; _image.GetDimensions(result.x, result.y); return int2(result); } float4 imageLoad(Texture2DArray<unorm float4> _image, int3 _uvw) { return _image[_uvw].xyzw; } int3 imageSize(Texture2DArray<unorm float4> _image) { uint3 result; _image.GetDimensions(result.x, result.y, result.z); return int3(result); } float4 imageLoad(RWTexture2DArray<unorm float4> _image, int3 _uvw) { return _image[_uvw].xyzw; } void imageStore(RWTexture2DArray<unorm float4> _image, int3 _uvw, float4 _value) { _image[_uvw] = _value.xyzw; } int3 imageSize(RWTexture2DArray<unorm float4> _image) { uint3 result; _image.GetDimensions(result.x, result.y, result.z); return int3(result); } float4 imageLoad(Texture3D<unorm float4> _image, int3 _uvw) { return _image[_uvw].xyzw; } int3 imageSize(Texture3D<unorm float4> _image) { uint3 result; _image.GetDimensions(result.x, result.y, result.z); return int3(result); } float4 imageLoad(RWTexture3D<unorm float4> _image, int3 _uvw) { return _image[_uvw].xyzw; } void imageStore(RWTexture3D<unorm float4> _image, int3 _uvw, float4 _value) { _image[_uvw] = _value.xyzw; } int3 imageSize(RWTexture3D<unorm float4> _image) { uint3 result; _image.GetDimensions(result.x, result.y, result.z); return int3(result); }
+
+void imageAtomicAdd(RWTexture2D<uint> _image, int2 _uv, uint4 _value) { InterlockedAdd(_image[_uv], _value.x); }
+
+
+
+
+
+static float4 bgfx_numWorkGroups;
+
+
+
+
+static float4 bgfx_indirectArgBase;
+
+
+
+
+uniform float4 u_params[3];
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+uint AU1_AH1_AF1_x(float a){return f32tof16(a);}
+
+uint AU1_AH2_AF2_x(float2 a){return f32tof16(a.x)|(f32tof16(a.y)<<16);}
+
+float2 AF2_AH2_AU1_x(uint x){return float2(f16tof32(x&0xFFFF),f16tof32(x>>16));}
+
+float AF1_x(float a){return float(a);}
+float2 AF2_x(float a){return float2(a,a);}
+float3 AF3_x(float a){return float3(a,a,a);}
+float4 AF4_x(float a){return float4(a,a,a,a);}
+
+uint AU1_x(uint a){return uint(a);}
+uint2 AU2_x(uint a){return uint2(a,a);}
+uint3 AU3_x(uint a){return uint3(a,a,a);}
+uint4 AU4_x(uint a){return uint4(a,a,a,a);}
+
+uint AAbsSU1(uint a){return uint(abs(int(a)));}
+uint2 AAbsSU2(uint2 a){return uint2(abs(int2(a)));}
+uint3 AAbsSU3(uint3 a){return uint3(abs(int3(a)));}
+uint4 AAbsSU4(uint4 a){return uint4(abs(int4(a)));}
+
+uint ABfe(uint src,uint off,uint bits){uint mask=(1u<<bits)-1;return (src>>off)&mask;}
+uint ABfi(uint src,uint ins,uint mask){return (ins&mask)|(src&(~mask));}
+uint ABfiM(uint src,uint ins,uint bits){uint mask=(1u<<bits)-1;return (ins&mask)|(src&(~mask));}
+
+float AClampF1(float x,float n,float m){return max(n,min(x,m));}
+float2 AClampF2(float2 x,float2 n,float2 m){return max(n,min(x,m));}
+float3 AClampF3(float3 x,float3 n,float3 m){return max(n,min(x,m));}
+float4 AClampF4(float4 x,float4 n,float4 m){return max(n,min(x,m));}
+
+float AFractF1(float x){return x-floor(x);}
+float2 AFractF2(float2 x){return x-floor(x);}
+float3 AFractF3(float3 x){return x-floor(x);}
+float4 AFractF4(float4 x){return x-floor(x);}
+
+float ALerpF1(float x,float y,float a){return lerp(x,y,a);}
+float2 ALerpF2(float2 x,float2 y,float2 a){return lerp(x,y,a);}
+float3 ALerpF3(float3 x,float3 y,float3 a){return lerp(x,y,a);}
+float4 ALerpF4(float4 x,float4 y,float4 a){return lerp(x,y,a);}
+
+float AMax3F1(float x,float y,float z){return max(x,max(y,z));}
+float2 AMax3F2(float2 x,float2 y,float2 z){return max(x,max(y,z));}
+float3 AMax3F3(float3 x,float3 y,float3 z){return max(x,max(y,z));}
+float4 AMax3F4(float4 x,float4 y,float4 z){return max(x,max(y,z));}
+
+uint AMax3SU1(uint x,uint y,uint z){return uint(max(int(x),max(int(y),int(z))));}
+uint2 AMax3SU2(uint2 x,uint2 y,uint2 z){return uint2(max(int2(x),max(int2(y),int2(z))));}
+uint3 AMax3SU3(uint3 x,uint3 y,uint3 z){return uint3(max(int3(x),max(int3(y),int3(z))));}
+uint4 AMax3SU4(uint4 x,uint4 y,uint4 z){return uint4(max(int4(x),max(int4(y),int4(z))));}
+
+uint AMax3U1(uint x,uint y,uint z){return max(x,max(y,z));}
+uint2 AMax3U2(uint2 x,uint2 y,uint2 z){return max(x,max(y,z));}
+uint3 AMax3U3(uint3 x,uint3 y,uint3 z){return max(x,max(y,z));}
+uint4 AMax3U4(uint4 x,uint4 y,uint4 z){return max(x,max(y,z));}
+
+uint AMaxSU1(uint a,uint b){return uint(max(int(a),int(b)));}
+uint2 AMaxSU2(uint2 a,uint2 b){return uint2(max(int2(a),int2(b)));}
+uint3 AMaxSU3(uint3 a,uint3 b){return uint3(max(int3(a),int3(b)));}
+uint4 AMaxSU4(uint4 a,uint4 b){return uint4(max(int4(a),int4(b)));}
+
+float AMed3F1(float x,float y,float z){return max(min(x,y),min(max(x,y),z));}
+float2 AMed3F2(float2 x,float2 y,float2 z){return max(min(x,y),min(max(x,y),z));}
+float3 AMed3F3(float3 x,float3 y,float3 z){return max(min(x,y),min(max(x,y),z));}
+float4 AMed3F4(float4 x,float4 y,float4 z){return max(min(x,y),min(max(x,y),z));}
+
+float AMin3F1(float x,float y,float z){return min(x,min(y,z));}
+float2 AMin3F2(float2 x,float2 y,float2 z){return min(x,min(y,z));}
+float3 AMin3F3(float3 x,float3 y,float3 z){return min(x,min(y,z));}
+float4 AMin3F4(float4 x,float4 y,float4 z){return min(x,min(y,z));}
+
+uint AMin3SU1(uint x,uint y,uint z){return uint(min(int(x),min(int(y),int(z))));}
+uint2 AMin3SU2(uint2 x,uint2 y,uint2 z){return uint2(min(int2(x),min(int2(y),int2(z))));}
+uint3 AMin3SU3(uint3 x,uint3 y,uint3 z){return uint3(min(int3(x),min(int3(y),int3(z))));}
+uint4 AMin3SU4(uint4 x,uint4 y,uint4 z){return uint4(min(int4(x),min(int4(y),int4(z))));}
+
+uint AMin3U1(uint x,uint y,uint z){return min(x,min(y,z));}
+uint2 AMin3U2(uint2 x,uint2 y,uint2 z){return min(x,min(y,z));}
+uint3 AMin3U3(uint3 x,uint3 y,uint3 z){return min(x,min(y,z));}
+uint4 AMin3U4(uint4 x,uint4 y,uint4 z){return min(x,min(y,z));}
+
+uint AMinSU1(uint a,uint b){return uint(min(int(a),int(b)));}
+uint2 AMinSU2(uint2 a,uint2 b){return uint2(min(int2(a),int2(b)));}
+uint3 AMinSU3(uint3 a,uint3 b){return uint3(min(int3(a),int3(b)));}
+uint4 AMinSU4(uint4 a,uint4 b){return uint4(min(int4(a),int4(b)));}
+
+float ANCosF1(float x){return cos(x*AF1_x(float(6.28318530718)));}
+float2 ANCosF2(float2 x){return cos(x*AF2_x(float(6.28318530718)));}
+float3 ANCosF3(float3 x){return cos(x*AF3_x(float(6.28318530718)));}
+float4 ANCosF4(float4 x){return cos(x*AF4_x(float(6.28318530718)));}
+
+float ANSinF1(float x){return sin(x*AF1_x(float(6.28318530718)));}
+float2 ANSinF2(float2 x){return sin(x*AF2_x(float(6.28318530718)));}
+float3 ANSinF3(float3 x){return sin(x*AF3_x(float(6.28318530718)));}
+float4 ANSinF4(float4 x){return sin(x*AF4_x(float(6.28318530718)));}
+
+float ARcpF1(float x){return rcp(x);}
+float2 ARcpF2(float2 x){return rcp(x);}
+float3 ARcpF3(float3 x){return rcp(x);}
+float4 ARcpF4(float4 x){return rcp(x);}
+
+float ARsqF1(float x){return rsqrt(x);}
+float2 ARsqF2(float2 x){return rsqrt(x);}
+float3 ARsqF3(float3 x){return rsqrt(x);}
+float4 ARsqF4(float4 x){return rsqrt(x);}
+
+float ASatF1(float x){return saturate(x);}
+float2 ASatF2(float2 x){return saturate(x);}
+float3 ASatF3(float3 x){return saturate(x);}
+float4 ASatF4(float4 x){return saturate(x);}
+
+uint AShrSU1(uint a,uint b){return uint(int(a)>>int(b));}
+uint2 AShrSU2(uint2 a,uint2 b){return uint2(int2(a)>>int2(b));}
+uint3 AShrSU3(uint3 a,uint3 b){return uint3(int3(a)>>int3(b));}
+uint4 AShrSU4(uint4 a,uint4 b){return uint4(int4(a)>>int4(b));}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+float ACpySgnF1(float d,float s){return asfloat(uint(asuint(float(d))|(asuint(float(s))&AU1_x(uint(0x80000000u)))));}
+float2 ACpySgnF2(float2 d,float2 s){return asfloat(uint2(asuint(float2(d))|(asuint(float2(s))&AU2_x(uint(0x80000000u)))));}
+float3 ACpySgnF3(float3 d,float3 s){return asfloat(uint3(asuint(float3(d))|(asuint(float3(s))&AU3_x(uint(0x80000000u)))));}
+float4 ACpySgnF4(float4 d,float4 s){return asfloat(uint4(asuint(float4(d))|(asuint(float4(s))&AU4_x(uint(0x80000000u)))));}
+
+
+
+
+
+
+
+
+
+float ASignedF1(float m){return ASatF1(m*AF1_x(float(asfloat(uint(0xff800000u)))));}
+float2 ASignedF2(float2 m){return ASatF2(m*AF2_x(float(asfloat(uint(0xff800000u)))));}
+float3 ASignedF3(float3 m){return ASatF3(m*AF3_x(float(asfloat(uint(0xff800000u)))));}
+float4 ASignedF4(float4 m){return ASatF4(m*AF4_x(float(asfloat(uint(0xff800000u)))));}
+
+float AGtZeroF1(float m){return ASatF1(m*AF1_x(float(asfloat(uint(0x7f800000u)))));}
+float2 AGtZeroF2(float2 m){return ASatF2(m*AF2_x(float(asfloat(uint(0x7f800000u)))));}
+float3 AGtZeroF3(float3 m){return ASatF3(m*AF3_x(float(asfloat(uint(0x7f800000u)))));}
+float4 AGtZeroF4(float4 m){return ASatF4(m*AF4_x(float(asfloat(uint(0x7f800000u)))));}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+uint AFisToU1(uint x){return x^(( AShrSU1(x,AU1_x(uint(31))))|AU1_x(uint(0x80000000)));}
+uint AFisFromU1(uint x){return x^((~AShrSU1(x,AU1_x(uint(31))))|AU1_x(uint(0x80000000)));}
+
+
+uint AFisToHiU1(uint x){return x^(( AShrSU1(x,AU1_x(uint(15))))|AU1_x(uint(0x80000000)));}
+uint AFisFromHiU1(uint x){return x^((~AShrSU1(x,AU1_x(uint(15))))|AU1_x(uint(0x80000000)));}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+uint ABuc0ToU1(uint d,float i){return (d&0xffffff00u)|((min(uint(i),255u) )&(0x000000ffu));}
+uint ABuc1ToU1(uint d,float i){return (d&0xffff00ffu)|((min(uint(i),255u)<< 8)&(0x0000ff00u));}
+uint ABuc2ToU1(uint d,float i){return (d&0xff00ffffu)|((min(uint(i),255u)<<16)&(0x00ff0000u));}
+uint ABuc3ToU1(uint d,float i){return (d&0x00ffffffu)|((min(uint(i),255u)<<24)&(0xff000000u));}
+
+
+float ABuc0FromU1(uint i){return float((i )&255u);}
+float ABuc1FromU1(uint i){return float((i>> 8)&255u);}
+float ABuc2FromU1(uint i){return float((i>>16)&255u);}
+float ABuc3FromU1(uint i){return float((i>>24)&255u);}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+uint ABsc0ToU1(uint d,float i){return (d&0xffffff00u)|((min(uint(i+128.0),255u) )&(0x000000ffu));}
+uint ABsc1ToU1(uint d,float i){return (d&0xffff00ffu)|((min(uint(i+128.0),255u)<< 8)&(0x0000ff00u));}
+uint ABsc2ToU1(uint d,float i){return (d&0xff00ffffu)|((min(uint(i+128.0),255u)<<16)&(0x00ff0000u));}
+uint ABsc3ToU1(uint d,float i){return (d&0x00ffffffu)|((min(uint(i+128.0),255u)<<24)&(0xff000000u));}
+
+uint ABsc0ToZbU1(uint d,float i){return ((d&0xffffff00u)|((min(uint(trunc(i)+128.0),255u) )&(0x000000ffu)))^0x00000080u;}
+uint ABsc1ToZbU1(uint d,float i){return ((d&0xffff00ffu)|((min(uint(trunc(i)+128.0),255u)<< 8)&(0x0000ff00u)))^0x00008000u;}
+uint ABsc2ToZbU1(uint d,float i){return ((d&0xff00ffffu)|((min(uint(trunc(i)+128.0),255u)<<16)&(0x00ff0000u)))^0x00800000u;}
+uint ABsc3ToZbU1(uint d,float i){return ((d&0x00ffffffu)|((min(uint(trunc(i)+128.0),255u)<<24)&(0xff000000u)))^0x80000000u;}
+
+float ABsc0FromU1(uint i){return float((i )&255u)-128.0;}
+float ABsc1FromU1(uint i){return float((i>> 8)&255u)-128.0;}
+float ABsc2FromU1(uint i){return float((i>>16)&255u)-128.0;}
+float ABsc3FromU1(uint i){return float((i>>24)&255u)-128.0;}
+
+float ABsc0FromZbU1(uint i){return float(((i )&255u)^0x80u)-128.0;}
+float ABsc1FromZbU1(uint i){return float(((i>> 8)&255u)^0x80u)-128.0;}
+float ABsc2FromZbU1(uint i){return float(((i>>16)&255u)^0x80u)-128.0;}
+float ABsc3FromZbU1(uint i){return float(((i>>24)&255u)^0x80u)-128.0;}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+float APrxLoSqrtF1(float a){return asfloat(uint((asuint(float(a))>>AU1_x(uint(1)))+AU1_x(uint(0x1fbc4639))));}
+float APrxLoRcpF1(float a){return asfloat(uint(AU1_x(uint(0x7ef07ebb))-asuint(float(a))));}
+float APrxMedRcpF1(float a){float b=asfloat(uint(AU1_x(uint(0x7ef19fff))-asuint(float(a))));return b*(-b*a+AF1_x(float(2.0)));}
+float APrxLoRsqF1(float a){return asfloat(uint(AU1_x(uint(0x5f347d74))-(asuint(float(a))>>AU1_x(uint(1)))));}
+
+float2 APrxLoSqrtF2(float2 a){return asfloat(uint2((asuint(float2(a))>>AU2_x(uint(1)))+AU2_x(uint(0x1fbc4639))));}
+float2 APrxLoRcpF2(float2 a){return asfloat(uint2(AU2_x(uint(0x7ef07ebb))-asuint(float2(a))));}
+float2 APrxMedRcpF2(float2 a){float2 b=asfloat(uint2(AU2_x(uint(0x7ef19fff))-asuint(float2(a))));return b*(-b*a+AF2_x(float(2.0)));}
+float2 APrxLoRsqF2(float2 a){return asfloat(uint2(AU2_x(uint(0x5f347d74))-(asuint(float2(a))>>AU2_x(uint(1)))));}
+
+float3 APrxLoSqrtF3(float3 a){return asfloat(uint3((asuint(float3(a))>>AU3_x(uint(1)))+AU3_x(uint(0x1fbc4639))));}
+float3 APrxLoRcpF3(float3 a){return asfloat(uint3(AU3_x(uint(0x7ef07ebb))-asuint(float3(a))));}
+float3 APrxMedRcpF3(float3 a){float3 b=asfloat(uint3(AU3_x(uint(0x7ef19fff))-asuint(float3(a))));return b*(-b*a+AF3_x(float(2.0)));}
+float3 APrxLoRsqF3(float3 a){return asfloat(uint3(AU3_x(uint(0x5f347d74))-(asuint(float3(a))>>AU3_x(uint(1)))));}
+
+float4 APrxLoSqrtF4(float4 a){return asfloat(uint4((asuint(float4(a))>>AU4_x(uint(1)))+AU4_x(uint(0x1fbc4639))));}
+float4 APrxLoRcpF4(float4 a){return asfloat(uint4(AU4_x(uint(0x7ef07ebb))-asuint(float4(a))));}
+float4 APrxMedRcpF4(float4 a){float4 b=asfloat(uint4(AU4_x(uint(0x7ef19fff))-asuint(float4(a))));return b*(-b*a+AF4_x(float(2.0)));}
+float4 APrxLoRsqF4(float4 a){return asfloat(uint4(AU4_x(uint(0x5f347d74))-(asuint(float4(a))>>AU4_x(uint(1)))));}
+
+
+
+
+
+
+
+
+
+
+float Quart(float a) { a = a * a; return a * a;}
+float Oct(float a) { a = a * a; a = a * a; return a * a; }
+float2 Quart(float2 a) { a = a * a; return a * a; }
+float2 Oct(float2 a) { a = a * a; a = a * a; return a * a; }
+float3 Quart(float3 a) { a = a * a; return a * a; }
+float3 Oct(float3 a) { a = a * a; a = a * a; return a * a; }
+float4 Quart(float4 a) { a = a * a; return a * a; }
+float4 Oct(float4 a) { a = a * a; a = a * a; return a * a; }
+
+float APrxPQToGamma2(float a) { return Quart(a); }
+float APrxPQToLinear(float a) { return Oct(a); }
+float APrxLoGamma2ToPQ(float a) { return asfloat(uint((asuint(float(a)) >> AU1_x(uint(2))) + AU1_x(uint(0x2F9A4E46)))); }
+float APrxMedGamma2ToPQ(float a) { float b = asfloat(uint((asuint(float(a)) >> AU1_x(uint(2))) + AU1_x(uint(0x2F9A4E46)))); float b4 = Quart(b); return b - b * (b4 - a) / (AF1_x(float(4.0)) * b4); }
+float APrxHighGamma2ToPQ(float a) { return sqrt(sqrt(a)); }
+float APrxLoLinearToPQ(float a) { return asfloat(uint((asuint(float(a)) >> AU1_x(uint(3))) + AU1_x(uint(0x378D8723)))); }
+float APrxMedLinearToPQ(float a) { float b = asfloat(uint((asuint(float(a)) >> AU1_x(uint(3))) + AU1_x(uint(0x378D8723)))); float b8 = Oct(b); return b - b * (b8 - a) / (AF1_x(float(8.0)) * b8); }
+float APrxHighLinearToPQ(float a) { return sqrt(sqrt(sqrt(a))); }
+
+float2 APrxPQToGamma2(float2 a) { return Quart(a); }
+float2 APrxPQToLinear(float2 a) { return Oct(a); }
+float2 APrxLoGamma2ToPQ(float2 a) { return asfloat(uint2((asuint(float2(a)) >> AU2_x(uint(2))) + AU2_x(uint(0x2F9A4E46)))); }
+float2 APrxMedGamma2ToPQ(float2 a) { float2 b = asfloat(uint2((asuint(float2(a)) >> AU2_x(uint(2))) + AU2_x(uint(0x2F9A4E46)))); float2 b4 = Quart(b); return b - b * (b4 - a) / (AF1_x(float(4.0)) * b4); }
+float2 APrxHighGamma2ToPQ(float2 a) { return sqrt(sqrt(a)); }
+float2 APrxLoLinearToPQ(float2 a) { return asfloat(uint2((asuint(float2(a)) >> AU2_x(uint(3))) + AU2_x(uint(0x378D8723)))); }
+float2 APrxMedLinearToPQ(float2 a) { float2 b = asfloat(uint2((asuint(float2(a)) >> AU2_x(uint(3))) + AU2_x(uint(0x378D8723)))); float2 b8 = Oct(b); return b - b * (b8 - a) / (AF1_x(float(8.0)) * b8); }
+float2 APrxHighLinearToPQ(float2 a) { return sqrt(sqrt(sqrt(a))); }
+
+float3 APrxPQToGamma2(float3 a) { return Quart(a); }
+float3 APrxPQToLinear(float3 a) { return Oct(a); }
+float3 APrxLoGamma2ToPQ(float3 a) { return asfloat(uint3((asuint(float3(a)) >> AU3_x(uint(2))) + AU3_x(uint(0x2F9A4E46)))); }
+float3 APrxMedGamma2ToPQ(float3 a) { float3 b = asfloat(uint3((asuint(float3(a)) >> AU3_x(uint(2))) + AU3_x(uint(0x2F9A4E46)))); float3 b4 = Quart(b); return b - b * (b4 - a) / (AF1_x(float(4.0)) * b4); }
+float3 APrxHighGamma2ToPQ(float3 a) { return sqrt(sqrt(a)); }
+float3 APrxLoLinearToPQ(float3 a) { return asfloat(uint3((asuint(float3(a)) >> AU3_x(uint(3))) + AU3_x(uint(0x378D8723)))); }
+float3 APrxMedLinearToPQ(float3 a) { float3 b = asfloat(uint3((asuint(float3(a)) >> AU3_x(uint(3))) + AU3_x(uint(0x378D8723)))); float3 b8 = Oct(b); return b - b * (b8 - a) / (AF1_x(float(8.0)) * b8); }
+float3 APrxHighLinearToPQ(float3 a) { return sqrt(sqrt(sqrt(a))); }
+
+float4 APrxPQToGamma2(float4 a) { return Quart(a); }
+float4 APrxPQToLinear(float4 a) { return Oct(a); }
+float4 APrxLoGamma2ToPQ(float4 a) { return asfloat(uint4((asuint(float4(a)) >> AU4_x(uint(2))) + AU4_x(uint(0x2F9A4E46)))); }
+float4 APrxMedGamma2ToPQ(float4 a) { float4 b = asfloat(uint4((asuint(float4(a)) >> AU4_x(uint(2))) + AU4_x(uint(0x2F9A4E46)))); float4 b4 = Quart(b); return b - b * (b4 - a) / (AF1_x(float(4.0)) * b4); }
+float4 APrxHighGamma2ToPQ(float4 a) { return sqrt(sqrt(a)); }
+float4 APrxLoLinearToPQ(float4 a) { return asfloat(uint4((asuint(float4(a)) >> AU4_x(uint(3))) + AU4_x(uint(0x378D8723)))); }
+float4 APrxMedLinearToPQ(float4 a) { float4 b = asfloat(uint4((asuint(float4(a)) >> AU4_x(uint(3))) + AU4_x(uint(0x378D8723)))); float4 b8 = Oct(b); return b - b * (b8 - a) / (AF1_x(float(8.0)) * b8); }
+float4 APrxHighLinearToPQ(float4 a) { return sqrt(sqrt(sqrt(a))); }
+
+
+
+
+
+
+
+
+
+
+
+float APSinF1(float x){return x*abs(x)-x;}
+float2 APSinF2(float2 x){return x*abs(x)-x;}
+float APCosF1(float x){x=AFractF1(x*AF1_x(float(0.5))+AF1_x(float(0.75)));x=x*AF1_x(float(2.0))-AF1_x(float(1.0));return APSinF1(x);}
+float2 APCosF2(float2 x){x=AFractF2(x*AF2_x(float(0.5))+AF2_x(float(0.75)));x=x*AF2_x(float(2.0))-AF2_x(float(1.0));return APSinF2(x);}
+float2 APSinCosF1(float x){float y=AFractF1(x*AF1_x(float(0.5))+AF1_x(float(0.75)));y=y*AF1_x(float(2.0))-AF1_x(float(1.0));return APSinF2(float2(x,y));}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+uint AZolAndU1(uint x,uint y){return min(x,y);}
+uint2 AZolAndU2(uint2 x,uint2 y){return min(x,y);}
+uint3 AZolAndU3(uint3 x,uint3 y){return min(x,y);}
+uint4 AZolAndU4(uint4 x,uint4 y){return min(x,y);}
+
+uint AZolNotU1(uint x){return x^AU1_x(uint(1));}
+uint2 AZolNotU2(uint2 x){return x^AU2_x(uint(1));}
+uint3 AZolNotU3(uint3 x){return x^AU3_x(uint(1));}
+uint4 AZolNotU4(uint4 x){return x^AU4_x(uint(1));}
+
+uint AZolOrU1(uint x,uint y){return max(x,y);}
+uint2 AZolOrU2(uint2 x,uint2 y){return max(x,y);}
+uint3 AZolOrU3(uint3 x,uint3 y){return max(x,y);}
+uint4 AZolOrU4(uint4 x,uint4 y){return max(x,y);}
+
+uint AZolF1ToU1(float x){return uint(x);}
+uint2 AZolF2ToU2(float2 x){return uint2(x);}
+uint3 AZolF3ToU3(float3 x){return uint3(x);}
+uint4 AZolF4ToU4(float4 x){return uint4(x);}
+
+
+uint AZolNotF1ToU1(float x){return uint(AF1_x(float(1.0))-x);}
+uint2 AZolNotF2ToU2(float2 x){return uint2(AF2_x(float(1.0))-x);}
+uint3 AZolNotF3ToU3(float3 x){return uint3(AF3_x(float(1.0))-x);}
+uint4 AZolNotF4ToU4(float4 x){return uint4(AF4_x(float(1.0))-x);}
+
+float AZolU1ToF1(uint x){return float(x);}
+float2 AZolU2ToF2(uint2 x){return float2(x);}
+float3 AZolU3ToF3(uint3 x){return float3(x);}
+float4 AZolU4ToF4(uint4 x){return float4(x);}
+
+float AZolAndF1(float x,float y){return min(x,y);}
+float2 AZolAndF2(float2 x,float2 y){return min(x,y);}
+float3 AZolAndF3(float3 x,float3 y){return min(x,y);}
+float4 AZolAndF4(float4 x,float4 y){return min(x,y);}
+
+float ASolAndNotF1(float x,float y){return (-x)*y+AF1_x(float(1.0));}
+float2 ASolAndNotF2(float2 x,float2 y){return (-x)*y+AF2_x(float(1.0));}
+float3 ASolAndNotF3(float3 x,float3 y){return (-x)*y+AF3_x(float(1.0));}
+float4 ASolAndNotF4(float4 x,float4 y){return (-x)*y+AF4_x(float(1.0));}
+
+float AZolAndOrF1(float x,float y,float z){return ASatF1(x*y+z);}
+float2 AZolAndOrF2(float2 x,float2 y,float2 z){return ASatF2(x*y+z);}
+float3 AZolAndOrF3(float3 x,float3 y,float3 z){return ASatF3(x*y+z);}
+float4 AZolAndOrF4(float4 x,float4 y,float4 z){return ASatF4(x*y+z);}
+
+float AZolGtZeroF1(float x){return ASatF1(x*AF1_x(float(asfloat(uint(0x7f800000u)))));}
+float2 AZolGtZeroF2(float2 x){return ASatF2(x*AF2_x(float(asfloat(uint(0x7f800000u)))));}
+float3 AZolGtZeroF3(float3 x){return ASatF3(x*AF3_x(float(asfloat(uint(0x7f800000u)))));}
+float4 AZolGtZeroF4(float4 x){return ASatF4(x*AF4_x(float(asfloat(uint(0x7f800000u)))));}
+
+float AZolNotF1(float x){return AF1_x(float(1.0))-x;}
+float2 AZolNotF2(float2 x){return AF2_x(float(1.0))-x;}
+float3 AZolNotF3(float3 x){return AF3_x(float(1.0))-x;}
+float4 AZolNotF4(float4 x){return AF4_x(float(1.0))-x;}
+
+float AZolOrF1(float x,float y){return max(x,y);}
+float2 AZolOrF2(float2 x,float2 y){return max(x,y);}
+float3 AZolOrF3(float3 x,float3 y){return max(x,y);}
+float4 AZolOrF4(float4 x,float4 y){return max(x,y);}
+
+float AZolSelF1(float x,float y,float z){float r=(-x)*z+z;return x*y+r;}
+float2 AZolSelF2(float2 x,float2 y,float2 z){float2 r=(-x)*z+z;return x*y+r;}
+float3 AZolSelF3(float3 x,float3 y,float3 z){float3 r=(-x)*z+z;return x*y+r;}
+float4 AZolSelF4(float4 x,float4 y,float4 z){float4 r=(-x)*z+z;return x*y+r;}
+
+float AZolSignedF1(float x){return ASatF1(x*AF1_x(float(asfloat(uint(0xff800000u)))));}
+float2 AZolSignedF2(float2 x){return ASatF2(x*AF2_x(float(asfloat(uint(0xff800000u)))));}
+float3 AZolSignedF3(float3 x){return ASatF3(x*AF3_x(float(asfloat(uint(0xff800000u)))));}
+float4 AZolSignedF4(float4 x){return ASatF4(x*AF4_x(float(asfloat(uint(0xff800000u)))));}
+
+float AZolZeroPassF1(float x,float y){return asfloat(uint(select((asuint(float(x))!=AU1_x(uint(0))),AU1_x(uint(0)),asuint(float(y)))));}
+float2 AZolZeroPassF2(float2 x,float2 y){return asfloat(uint2(select((asuint(float2(x))!=AU2_x(uint(0))),AU2_x(uint(0)),asuint(float2(y)))));}
+float3 AZolZeroPassF3(float3 x,float3 y){return asfloat(uint3(select((asuint(float3(x))!=AU3_x(uint(0))),AU3_x(uint(0)),asuint(float3(y)))));}
+float4 AZolZeroPassF4(float4 x,float4 y){return asfloat(uint4(select((asuint(float4(x))!=AU4_x(uint(0))),AU4_x(uint(0)),asuint(float4(y)))));}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+float ATo709F1(float c){float3 j=float3(0.018*4.5,4.5,0.45);float2 k=float2(1.099,-0.099);
+return clamp(j.x ,c*j.y ,pow(c,j.z )*k.x +k.y );}
+float2 ATo709F2(float2 c){float3 j=float3(0.018*4.5,4.5,0.45);float2 k=float2(1.099,-0.099);
+return clamp(j.xx ,c*j.yy ,pow(c,j.zz )*k.xx +k.yy );}
+float3 ATo709F3(float3 c){float3 j=float3(0.018*4.5,4.5,0.45);float2 k=float2(1.099,-0.099);
+return clamp(j.xxx,c*j.yyy,pow(c,j.zzz)*k.xxx+k.yyy);}
+
+
+float AToGammaF1(float c,float rcpX){return pow(c,AF1_x(float(rcpX)));}
+float2 AToGammaF2(float2 c,float rcpX){return pow(c,AF2_x(float(rcpX)));}
+float3 AToGammaF3(float3 c,float rcpX){return pow(c,AF3_x(float(rcpX)));}
+
+float AToPqF1(float x){float p=pow(x,AF1_x(float(0.159302)));
+return pow((AF1_x(float(0.835938))+AF1_x(float(18.8516))*p)/(AF1_x(float(1.0))+AF1_x(float(18.6875))*p),AF1_x(float(78.8438)));}
+float2 AToPqF1(float2 x){float2 p=pow(x,AF2_x(float(0.159302)));
+return pow((AF2_x(float(0.835938))+AF2_x(float(18.8516))*p)/(AF2_x(float(1.0))+AF2_x(float(18.6875))*p),AF2_x(float(78.8438)));}
+float3 AToPqF1(float3 x){float3 p=pow(x,AF3_x(float(0.159302)));
+return pow((AF3_x(float(0.835938))+AF3_x(float(18.8516))*p)/(AF3_x(float(1.0))+AF3_x(float(18.6875))*p),AF3_x(float(78.8438)));}
+
+float AToSrgbF1(float c){float3 j=float3(0.0031308*12.92,12.92,1.0/2.4);float2 k=float2(1.055,-0.055);
+return clamp(j.x ,c*j.y ,pow(c,j.z )*k.x +k.y );}
+float2 AToSrgbF2(float2 c){float3 j=float3(0.0031308*12.92,12.92,1.0/2.4);float2 k=float2(1.055,-0.055);
+return clamp(j.xx ,c*j.yy ,pow(c,j.zz )*k.xx +k.yy );}
+float3 AToSrgbF3(float3 c){float3 j=float3(0.0031308*12.92,12.92,1.0/2.4);float2 k=float2(1.055,-0.055);
+return clamp(j.xxx,c*j.yyy,pow(c,j.zzz)*k.xxx+k.yyy);}
+
+float AToTwoF1(float c){return sqrt(c);}
+float2 AToTwoF2(float2 c){return sqrt(c);}
+float3 AToTwoF3(float3 c){return sqrt(c);}
+
+float AToThreeF1(float c){return pow(c,AF1_x(float(1.0/3.0)));}
+float2 AToThreeF2(float2 c){return pow(c,AF2_x(float(1.0/3.0)));}
+float3 AToThreeF3(float3 c){return pow(c,AF3_x(float(1.0/3.0)));}
+
+
+float AFrom709F1(float c){float3 j=float3(0.081/4.5,1.0/4.5,1.0/0.45);float2 k=float2(1.0/1.099,0.099/1.099);
+return AZolSelF1(AZolSignedF1(c-j.x ),c*j.y ,pow(c*k.x +k.y ,j.z ));}
+float2 AFrom709F2(float2 c){float3 j=float3(0.081/4.5,1.0/4.5,1.0/0.45);float2 k=float2(1.0/1.099,0.099/1.099);
+return AZolSelF2(AZolSignedF2(c-j.xx ),c*j.yy ,pow(c*k.xx +k.yy ,j.zz ));}
+float3 AFrom709F3(float3 c){float3 j=float3(0.081/4.5,1.0/4.5,1.0/0.45);float2 k=float2(1.0/1.099,0.099/1.099);
+return AZolSelF3(AZolSignedF3(c-j.xxx),c*j.yyy,pow(c*k.xxx+k.yyy,j.zzz));}
+
+float AFromGammaF1(float c,float x){return pow(c,AF1_x(float(x)));}
+float2 AFromGammaF2(float2 c,float x){return pow(c,AF2_x(float(x)));}
+float3 AFromGammaF3(float3 c,float x){return pow(c,AF3_x(float(x)));}
+
+float AFromPqF1(float x){float p=pow(x,AF1_x(float(0.0126833)));
+return pow(ASatF1(p-AF1_x(float(0.835938)))/(AF1_x(float(18.8516))-AF1_x(float(18.6875))*p),AF1_x(float(6.27739)));}
+float2 AFromPqF1(float2 x){float2 p=pow(x,AF2_x(float(0.0126833)));
+return pow(ASatF2(p-AF2_x(float(0.835938)))/(AF2_x(float(18.8516))-AF2_x(float(18.6875))*p),AF2_x(float(6.27739)));}
+float3 AFromPqF1(float3 x){float3 p=pow(x,AF3_x(float(0.0126833)));
+return pow(ASatF3(p-AF3_x(float(0.835938)))/(AF3_x(float(18.8516))-AF3_x(float(18.6875))*p),AF3_x(float(6.27739)));}
+
+
+float AFromSrgbF1(float c){float3 j=float3(0.04045/12.92,1.0/12.92,2.4);float2 k=float2(1.0/1.055,0.055/1.055);
+return AZolSelF1(AZolSignedF1(c-j.x ),c*j.y ,pow(c*k.x +k.y ,j.z ));}
+float2 AFromSrgbF2(float2 c){float3 j=float3(0.04045/12.92,1.0/12.92,2.4);float2 k=float2(1.0/1.055,0.055/1.055);
+return AZolSelF2(AZolSignedF2(c-j.xx ),c*j.yy ,pow(c*k.xx +k.yy ,j.zz ));}
+float3 AFromSrgbF3(float3 c){float3 j=float3(0.04045/12.92,1.0/12.92,2.4);float2 k=float2(1.0/1.055,0.055/1.055);
+return AZolSelF3(AZolSignedF3(c-j.xxx),c*j.yyy,pow(c*k.xxx+k.yyy,j.zzz));}
+
+float AFromTwoF1(float c){return c*c;}
+float2 AFromTwoF2(float2 c){return c*c;}
+float3 AFromTwoF3(float3 c){return c*c;}
+
+float AFromThreeF1(float c){return c*c*c;}
+float2 AFromThreeF2(float2 c){return c*c*c;}
+float3 AFromThreeF3(float3 c){return c*c*c;}
+
+
+
+
+
+
+
+
+
+
+
+
+
+uint2 ARmp8x8(uint a){return uint2(ABfe(a,1u,3u),ABfiM(ABfe(a,3u,3u),a,1u));}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+uint2 ARmpRed8x8(uint a){return uint2(ABfiM(ABfe(a,2u,3u),a,1u),ABfiM(ABfe(a,3u,3u),ABfe(a,1u,2u),2u));}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+float2 opAAbsF2(out float2 d,in float2 a){d=abs(a);return d;}
+float3 opAAbsF3(out float3 d,in float3 a){d=abs(a);return d;}
+float4 opAAbsF4(out float4 d,in float4 a){d=abs(a);return d;}
+
+float2 opAAddF2(out float2 d,in float2 a,in float2 b){d=a+b;return d;}
+float3 opAAddF3(out float3 d,in float3 a,in float3 b){d=a+b;return d;}
+float4 opAAddF4(out float4 d,in float4 a,in float4 b){d=a+b;return d;}
+
+float2 opAAddOneF2(out float2 d,in float2 a,float b){d=a+AF2_x(float(b));return d;}
+float3 opAAddOneF3(out float3 d,in float3 a,float b){d=a+AF3_x(float(b));return d;}
+float4 opAAddOneF4(out float4 d,in float4 a,float b){d=a+AF4_x(float(b));return d;}
+
+float2 opACpyF2(out float2 d,in float2 a){d=a;return d;}
+float3 opACpyF3(out float3 d,in float3 a){d=a;return d;}
+float4 opACpyF4(out float4 d,in float4 a){d=a;return d;}
+
+float2 opALerpF2(out float2 d,in float2 a,in float2 b,in float2 c){d=ALerpF2(a,b,c);return d;}
+float3 opALerpF3(out float3 d,in float3 a,in float3 b,in float3 c){d=ALerpF3(a,b,c);return d;}
+float4 opALerpF4(out float4 d,in float4 a,in float4 b,in float4 c){d=ALerpF4(a,b,c);return d;}
+
+float2 opALerpOneF2(out float2 d,in float2 a,in float2 b,float c){d=ALerpF2(a,b,AF2_x(float(c)));return d;}
+float3 opALerpOneF3(out float3 d,in float3 a,in float3 b,float c){d=ALerpF3(a,b,AF3_x(float(c)));return d;}
+float4 opALerpOneF4(out float4 d,in float4 a,in float4 b,float c){d=ALerpF4(a,b,AF4_x(float(c)));return d;}
+
+float2 opAMaxF2(out float2 d,in float2 a,in float2 b){d=max(a,b);return d;}
+float3 opAMaxF3(out float3 d,in float3 a,in float3 b){d=max(a,b);return d;}
+float4 opAMaxF4(out float4 d,in float4 a,in float4 b){d=max(a,b);return d;}
+
+float2 opAMinF2(out float2 d,in float2 a,in float2 b){d=min(a,b);return d;}
+float3 opAMinF3(out float3 d,in float3 a,in float3 b){d=min(a,b);return d;}
+float4 opAMinF4(out float4 d,in float4 a,in float4 b){d=min(a,b);return d;}
+
+float2 opAMulF2(out float2 d,in float2 a,in float2 b){d=a*b;return d;}
+float3 opAMulF3(out float3 d,in float3 a,in float3 b){d=a*b;return d;}
+float4 opAMulF4(out float4 d,in float4 a,in float4 b){d=a*b;return d;}
+
+float2 opAMulOneF2(out float2 d,in float2 a,float b){d=a*AF2_x(float(b));return d;}
+float3 opAMulOneF3(out float3 d,in float3 a,float b){d=a*AF3_x(float(b));return d;}
+float4 opAMulOneF4(out float4 d,in float4 a,float b){d=a*AF4_x(float(b));return d;}
+
+float2 opANegF2(out float2 d,in float2 a){d=-a;return d;}
+float3 opANegF3(out float3 d,in float3 a){d=-a;return d;}
+float4 opANegF4(out float4 d,in float4 a){d=-a;return d;}
+
+float2 opARcpF2(out float2 d,in float2 a){d=ARcpF2(a);return d;}
+float3 opARcpF3(out float3 d,in float3 a){d=ARcpF3(a);return d;}
+float4 opARcpF4(out float4 d,in float4 a){d=ARcpF4(a);return d;}
+uniform SamplerState InputTextureSampler : register(s0); uniform Texture2D InputTextureTexture : register(t0); static BgfxSampler2D InputTexture = {InputTextureSampler,InputTextureTexture };
+RWTexture2D<float4> OutputTexture : register(u1);;
+float4 FsrRcasLoadF(int2 p) { return bgfxTexelFetch(InputTexture, int2(p), 0); }
+void FsrRcasInputF(inout float r, inout float g, inout float b) {}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+void FsrEasuCon(
+out uint4 con0,
+out uint4 con1,
+out uint4 con2,
+out uint4 con3,
+
+float inputViewportInPixelsX,
+float inputViewportInPixelsY,
+
+float inputSizeInPixelsX,
+float inputSizeInPixelsY,
+
+float outputSizeInPixelsX,
+float outputSizeInPixelsY){
+
+con0[0]=asuint(float(inputViewportInPixelsX*ARcpF1(outputSizeInPixelsX)));
+con0[1]=asuint(float(inputViewportInPixelsY*ARcpF1(outputSizeInPixelsY)));
+con0[2]=asuint(float(AF1_x(float(0.5))*inputViewportInPixelsX*ARcpF1(outputSizeInPixelsX)-AF1_x(float(0.5))));
+con0[3]=asuint(float(AF1_x(float(0.5))*inputViewportInPixelsY*ARcpF1(outputSizeInPixelsY)-AF1_x(float(0.5))));
+
+
+con1[0]=asuint(float(ARcpF1(inputSizeInPixelsX)));
+con1[1]=asuint(float(ARcpF1(inputSizeInPixelsY)));
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+con1[2]=asuint(float(AF1_x(float(1.0))*ARcpF1(inputSizeInPixelsX)));
+con1[3]=asuint(float(AF1_x(float(-1.0))*ARcpF1(inputSizeInPixelsY)));
+
+con2[0]=asuint(float(AF1_x(float(-1.0))*ARcpF1(inputSizeInPixelsX)));
+con2[1]=asuint(float(AF1_x(float(2.0))*ARcpF1(inputSizeInPixelsY)));
+con2[2]=asuint(float(AF1_x(float(1.0))*ARcpF1(inputSizeInPixelsX)));
+con2[3]=asuint(float(AF1_x(float(2.0))*ARcpF1(inputSizeInPixelsY)));
+con3[0]=asuint(float(AF1_x(float(0.0))*ARcpF1(inputSizeInPixelsX)));
+con3[1]=asuint(float(AF1_x(float(4.0))*ARcpF1(inputSizeInPixelsY)));
+con3[2]=con3[3]=0;}
+
+
+void FsrEasuConOffset(
+out uint4 con0,
+out uint4 con1,
+out uint4 con2,
+out uint4 con3,
+
+float inputViewportInPixelsX,
+float inputViewportInPixelsY,
+
+float inputSizeInPixelsX,
+float inputSizeInPixelsY,
+
+float outputSizeInPixelsX,
+float outputSizeInPixelsY,
+
+float inputOffsetInPixelsX,
+float inputOffsetInPixelsY) {
+FsrEasuCon(con0, con1, con2, con3, inputViewportInPixelsX, inputViewportInPixelsY, inputSizeInPixelsX, inputSizeInPixelsY, outputSizeInPixelsX, outputSizeInPixelsY);
+con0[2] = asuint(float(AF1_x(float(0.5)) * inputViewportInPixelsX * ARcpF1(outputSizeInPixelsX) - AF1_x(float(0.5)) + inputOffsetInPixelsX));
+con0[3] = asuint(float(AF1_x(float(0.5)) * inputViewportInPixelsY * ARcpF1(outputSizeInPixelsY) - AF1_x(float(0.5)) + inputOffsetInPixelsY));
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+void FsrRcasCon(
+out uint4 con,
+
+float sharpness){
+
+sharpness=exp2(float(-sharpness));
+float2 hSharp=float2(sharpness,sharpness);
+con[0]=asuint(float(sharpness));
+con[1]=AU1_AH2_AF2_x(float2(hSharp));
+con[2]=0;
+con[3]=0;}
+
+
+
+
+
+
+
+float4 FsrRcasLoadF(int2 p);
+void FsrRcasInputF(inout float r,inout float g,inout float b);
+
+void FsrRcasF(
+out float pixR,
+out float pixG,
+out float pixB,
+uint2 ip,
+uint4 con){
+
+
+
+
+int2 sp=int2(ip);
+float3 b=FsrRcasLoadF(sp+int2( 0,-1)).rgb;
+float3 d=FsrRcasLoadF(sp+int2(-1, 0)).rgb;
+float3 e=FsrRcasLoadF(sp).rgb;
+float3 f=FsrRcasLoadF(sp+int2( 1, 0)).rgb;
+float3 h=FsrRcasLoadF(sp+int2( 0, 1)).rgb;
+
+float bR=b.r;
+float bG=b.g;
+float bB=b.b;
+float dR=d.r;
+float dG=d.g;
+float dB=d.b;
+float eR=e.r;
+float eG=e.g;
+float eB=e.b;
+float fR=f.r;
+float fG=f.g;
+float fB=f.b;
+float hR=h.r;
+float hG=h.g;
+float hB=h.b;
+
+FsrRcasInputF(bR,bG,bB);
+FsrRcasInputF(dR,dG,dB);
+FsrRcasInputF(eR,eG,eB);
+FsrRcasInputF(fR,fG,fB);
+FsrRcasInputF(hR,hG,hB);
+
+float bL=bB*AF1_x(float(0.5))+(bR*AF1_x(float(0.5))+bG);
+float dL=dB*AF1_x(float(0.5))+(dR*AF1_x(float(0.5))+dG);
+float eL=eB*AF1_x(float(0.5))+(eR*AF1_x(float(0.5))+eG);
+float fL=fB*AF1_x(float(0.5))+(fR*AF1_x(float(0.5))+fG);
+float hL=hB*AF1_x(float(0.5))+(hR*AF1_x(float(0.5))+hG);
+
+float nz=AF1_x(float(0.25))*bL+AF1_x(float(0.25))*dL+AF1_x(float(0.25))*fL+AF1_x(float(0.25))*hL-eL;
+nz=ASatF1(abs(nz)*APrxMedRcpF1(AMax3F1(AMax3F1(bL,dL,eL),fL,hL)-AMin3F1(AMin3F1(bL,dL,eL),fL,hL)));
+nz=AF1_x(float(-0.5))*nz+AF1_x(float(1.0));
+
+float mn4R=min(AMin3F1(bR,dR,fR),hR);
+float mn4G=min(AMin3F1(bG,dG,fG),hG);
+float mn4B=min(AMin3F1(bB,dB,fB),hB);
+float mx4R=max(AMax3F1(bR,dR,fR),hR);
+float mx4G=max(AMax3F1(bG,dG,fG),hG);
+float mx4B=max(AMax3F1(bB,dB,fB),hB);
+
+float2 peakC=float2(1.0,-1.0*4.0);
+
+float hitMinR=mn4R*ARcpF1(AF1_x(float(4.0))*mx4R);
+float hitMinG=mn4G*ARcpF1(AF1_x(float(4.0))*mx4G);
+float hitMinB=mn4B*ARcpF1(AF1_x(float(4.0))*mx4B);
+float hitMaxR=(peakC.x-mx4R)*ARcpF1(AF1_x(float(4.0))*mn4R+peakC.y);
+float hitMaxG=(peakC.x-mx4G)*ARcpF1(AF1_x(float(4.0))*mn4G+peakC.y);
+float hitMaxB=(peakC.x-mx4B)*ARcpF1(AF1_x(float(4.0))*mn4B+peakC.y);
+float lobeR=max(-hitMinR,hitMaxR);
+float lobeG=max(-hitMinG,hitMaxG);
+float lobeB=max(-hitMinB,hitMaxB);
+float lobe=max(AF1_x(float(-(0.25-(1.0/16.0)))),min(AMax3F1(lobeR,lobeG,lobeB),AF1_x(float(0.0))))*asfloat(uint(con.x));
+
+
+float rcpL=APrxMedRcpF1(AF1_x(float(4.0))*lobe+AF1_x(float(1.0)));
+pixR=(lobe*bR+lobe*dR+lobe*hR+lobe*fR+eR)*rcpL;
+pixG=(lobe*bG+lobe*dG+lobe*hG+lobe*fG+eG)*rcpL;
+pixB=(lobe*bB+lobe*dB+lobe*hB+lobe*fB+eB)*rcpL;
+return;}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+void FsrLfgaF(inout float3 c,float3 t,float a){c+=(t*AF3_x(float(a)))*min(AF3_x(float(1.0))-c,c);}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+void FsrSrtmF(inout float3 c){c*=AF3_x(float(ARcpF1(AMax3F1(c.r,c.g,c.b)+AF1_x(float(1.0)))));}
+
+void FsrSrtmInvF(inout float3 c){c*=AF3_x(float(ARcpF1(max(AF1_x(float(1.0/32768.0)),AF1_x(float(1.0))-AMax3F1(c.r,c.g,c.b)))));}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+float FsrTepdDitF(uint2 p,uint f){
+float x=AF1_x(float(p.x+f));
+float y=AF1_x(float(p.y));
+
+float a=AF1_x(float((1.0+sqrt(5.0))/2.0));
+
+float b=AF1_x(float(1.0/3.69));
+x=x*a+(y*b);
+return AFractF1(x);}
+
+
+
+
+void FsrTepdC8F(inout float3 c,float dit){
+float3 n=sqrt(c);
+n=floor(n*AF3_x(float(255.0)))*AF3_x(float(1.0/255.0));
+float3 a=n*n;
+float3 b=n+AF3_x(float(1.0/255.0));b=b*b;
+
+
+
+float3 r=(c-b)*APrxMedRcpF3(a-b);
+
+
+c=ASatF3(n+AGtZeroF3(AF3_x(float(dit))-r)*AF3_x(float(1.0/255.0)));}
+
+
+
+
+void FsrTepdC10F(inout float3 c,float dit){
+float3 n=sqrt(c);
+n=floor(n*AF3_x(float(1023.0)))*AF3_x(float(1.0/1023.0));
+float3 a=n*n;
+float3 b=n+AF3_x(float(1.0/1023.0));b=b*b;
+float3 r=(c-b)*APrxMedRcpF3(a-b);
+c=ASatF3(n+AGtZeroF3(AF3_x(float(dit))-r)*AF3_x(float(1.0/1023.0)));}
+
+
+void CurrFilter(uint2 pos, uint4 Const0, uint4 Const1, uint4 Const2, uint4 Const3, uint4 Sample)
+{
+
+
+float3 c;
+FsrRcasF(c.r, c.g, c.b, pos, Const0);
+if( Sample.x == 1 )
+c *= c;
+imageStore(OutputTexture, int2(pos), float4(c, 1));
+}
+
+[numthreads(64, 1, 1)]
+void main( int3 gl_LocalInvocationID : SV_GroupThreadID , int3 gl_WorkGroupID : SV_GroupID )
+{
+uint4 Const0, Const1, Const2, Const3, Sample;
+
+
+
+FsrRcasCon(Const0, u_params[0].z);
+Sample.x = 0;
+
+
+uint2 gxy = ARmp8x8(gl_LocalInvocationID.x) + uint2(gl_WorkGroupID.x << 4u, gl_WorkGroupID.y << 4u);
+CurrFilter(gxy, Const0, Const1, Const2, Const3, Sample);
+gxy.x += 8u;
+CurrFilter(gxy, Const0, Const1, Const2, Const3, Sample);
+gxy.y += 8u;
+CurrFilter(gxy, Const0, Const1, Const2, Const3, Sample);
+gxy.x -= 8u;
+CurrFilter(gxy, Const0, Const1, Const2, Const3, Sample);
+}
+

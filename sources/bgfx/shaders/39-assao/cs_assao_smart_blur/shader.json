@@ -1,0 +1,36 @@
+{
+    "origin": "upstream/examples/39-assao/cs_assao_smart_blur.sc",
+    "stage": "compute",
+    "languages": {
+        "hlsl": {
+            "status": "generated",
+            "file": "cs_assao_smart_blur.hlsl",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type compute --platform windows -p s_5_0 -i ../../src --debug"
+        },
+        "glsl": {
+            "status": "generated",
+            "file": "cs_assao_smart_blur.glsl",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type compute --platform linux -p 430 -i ../../src --raw"
+        },
+        "wgsl": {
+            "status": "generated",
+            "file": "cs_assao_smart_blur.wgsl",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type compute --platform linux -p wgsl -i ../../src"
+        },
+        "msl": {
+            "status": "generated",
+            "file": "cs_assao_smart_blur.metal",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type compute --platform osx -p metal -i ../../src"
+        },
+        "spirv": {
+            "status": "generated",
+            "file": "cs_assao_smart_blur.spv",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type compute --platform linux -p spirv -i ../../src"
+        }
+    }
+}

@@ -1,0 +1,36 @@
+{
+    "origin": "upstream/examples/01-cubes/vs_cubes.sc",
+    "stage": "vertex",
+    "languages": {
+        "hlsl": {
+            "status": "generated",
+            "file": "vs_cubes.hlsl",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type vertex --platform windows -p s_5_0 -i ../../src --debug"
+        },
+        "glsl": {
+            "status": "generated",
+            "file": "vs_cubes.glsl",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type vertex --platform linux -p 430 -i ../../src --raw"
+        },
+        "wgsl": {
+            "status": "generated",
+            "file": "vs_cubes.wgsl",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type vertex --platform linux -p wgsl -i ../../src"
+        },
+        "msl": {
+            "status": "generated",
+            "file": "vs_cubes.metal",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type vertex --platform osx -p metal -i ../../src"
+        },
+        "spirv": {
+            "status": "generated",
+            "file": "vs_cubes.spv",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type vertex --platform linux -p spirv -i ../../src"
+        }
+    }
+}

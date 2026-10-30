@@ -1,0 +1,36 @@
+{
+    "origin": "upstream/examples/46-fsr/fs_fsr_copy_linear_to_gamma.sc",
+    "stage": "fragment",
+    "languages": {
+        "hlsl": {
+            "status": "generated",
+            "file": "fs_fsr_copy_linear_to_gamma.hlsl",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type fragment --platform windows -p s_5_0 -i ../../src --debug"
+        },
+        "glsl": {
+            "status": "generated",
+            "file": "fs_fsr_copy_linear_to_gamma.glsl",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type fragment --platform linux -p 430 -i ../../src --raw"
+        },
+        "wgsl": {
+            "status": "generated",
+            "file": "fs_fsr_copy_linear_to_gamma.wgsl",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type fragment --platform linux -p wgsl -i ../../src"
+        },
+        "msl": {
+            "status": "generated",
+            "file": "fs_fsr_copy_linear_to_gamma.metal",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type fragment --platform osx -p metal -i ../../src"
+        },
+        "spirv": {
+            "status": "generated",
+            "file": "fs_fsr_copy_linear_to_gamma.spv",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type fragment --platform linux -p spirv -i ../../src"
+        }
+    }
+}

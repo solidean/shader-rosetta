@@ -1,0 +1,36 @@
+{
+    "origin": "upstream/examples/37-gpudrivenrendering/cs_gdr_downscale_hi_z.sc",
+    "stage": "compute",
+    "languages": {
+        "hlsl": {
+            "status": "generated",
+            "file": "cs_gdr_downscale_hi_z.hlsl",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type compute --platform windows -p s_5_0 -i ../../src --debug"
+        },
+        "glsl": {
+            "status": "generated",
+            "file": "cs_gdr_downscale_hi_z.glsl",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type compute --platform linux -p 430 -i ../../src --raw"
+        },
+        "wgsl": {
+            "status": "generated",
+            "file": "cs_gdr_downscale_hi_z.wgsl",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type compute --platform linux -p wgsl -i ../../src"
+        },
+        "msl": {
+            "status": "generated",
+            "file": "cs_gdr_downscale_hi_z.metal",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type compute --platform osx -p metal -i ../../src"
+        },
+        "spirv": {
+            "status": "generated",
+            "file": "cs_gdr_downscale_hi_z.spv",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type compute --platform linux -p spirv -i ../../src"
+        }
+    }
+}

@@ -1,0 +1,36 @@
+{
+    "origin": "upstream/examples/41-tess/cs_terrain_init.sc",
+    "stage": "compute",
+    "languages": {
+        "hlsl": {
+            "status": "generated",
+            "file": "cs_terrain_init.hlsl",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type compute --platform windows -p s_5_0 -i ../../src --debug"
+        },
+        "glsl": {
+            "status": "generated",
+            "file": "cs_terrain_init.glsl",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type compute --platform linux -p 430 -i ../../src --raw"
+        },
+        "wgsl": {
+            "status": "generated",
+            "file": "cs_terrain_init.wgsl",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type compute --platform linux -p wgsl -i ../../src"
+        },
+        "msl": {
+            "status": "generated",
+            "file": "cs_terrain_init.metal",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type compute --platform osx -p metal -i ../../src"
+        },
+        "spirv": {
+            "status": "generated",
+            "file": "cs_terrain_init.spv",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type compute --platform linux -p spirv -i ../../src"
+        }
+    }
+}

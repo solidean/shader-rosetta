@@ -1,0 +1,36 @@
+{
+    "origin": "upstream/examples/common/font/vs_font_distance_field_drop_shadow_image.sc",
+    "stage": "vertex",
+    "languages": {
+        "hlsl": {
+            "status": "generated",
+            "file": "vs_font_distance_field_drop_shadow_image.hlsl",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type vertex --platform windows -p s_5_0 -i ../../../src --debug"
+        },
+        "glsl": {
+            "status": "generated",
+            "file": "vs_font_distance_field_drop_shadow_image.glsl",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type vertex --platform linux -p 430 -i ../../../src --raw"
+        },
+        "wgsl": {
+            "status": "generated",
+            "file": "vs_font_distance_field_drop_shadow_image.wgsl",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type vertex --platform linux -p wgsl -i ../../../src"
+        },
+        "msl": {
+            "status": "generated",
+            "file": "vs_font_distance_field_drop_shadow_image.metal",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type vertex --platform osx -p metal -i ../../../src"
+        },
+        "spirv": {
+            "status": "generated",
+            "file": "vs_font_distance_field_drop_shadow_image.spv",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type vertex --platform linux -p spirv -i ../../../src"
+        }
+    }
+}

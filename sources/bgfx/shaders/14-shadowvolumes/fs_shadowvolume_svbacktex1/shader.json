@@ -1,0 +1,36 @@
+{
+    "origin": "upstream/examples/14-shadowvolumes/fs_shadowvolume_svbacktex1.sc",
+    "stage": "fragment",
+    "languages": {
+        "hlsl": {
+            "status": "generated",
+            "file": "fs_shadowvolume_svbacktex1.hlsl",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type fragment --platform windows -p s_5_0 -i ../../src --debug"
+        },
+        "glsl": {
+            "status": "generated",
+            "file": "fs_shadowvolume_svbacktex1.glsl",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type fragment --platform linux -p 430 -i ../../src --raw"
+        },
+        "wgsl": {
+            "status": "generated",
+            "file": "fs_shadowvolume_svbacktex1.wgsl",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type fragment --platform linux -p wgsl -i ../../src"
+        },
+        "msl": {
+            "status": "generated",
+            "file": "fs_shadowvolume_svbacktex1.metal",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type fragment --platform osx -p metal -i ../../src"
+        },
+        "spirv": {
+            "status": "generated",
+            "file": "fs_shadowvolume_svbacktex1.spv",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type fragment --platform linux -p spirv -i ../../src"
+        }
+    }
+}

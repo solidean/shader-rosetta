@@ -1,0 +1,36 @@
+{
+    "origin": "upstream/examples/41-tess/vs_terrain_render.sc",
+    "stage": "vertex",
+    "languages": {
+        "hlsl": {
+            "status": "generated",
+            "file": "vs_terrain_render.hlsl",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type vertex --platform windows -p s_5_0 -i ../../src --debug"
+        },
+        "glsl": {
+            "status": "generated",
+            "file": "vs_terrain_render.glsl",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type vertex --platform linux -p 430 -i ../../src --raw"
+        },
+        "wgsl": {
+            "status": "generated",
+            "file": "vs_terrain_render.wgsl",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type vertex --platform linux -p wgsl -i ../../src"
+        },
+        "msl": {
+            "status": "generated",
+            "file": "vs_terrain_render.metal",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type vertex --platform osx -p metal -i ../../src"
+        },
+        "spirv": {
+            "status": "generated",
+            "file": "vs_terrain_render.spv",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type vertex --platform linux -p spirv -i ../../src"
+        }
+    }
+}

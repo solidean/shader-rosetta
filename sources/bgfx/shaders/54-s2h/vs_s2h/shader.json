@@ -1,0 +1,36 @@
+{
+    "origin": "upstream/examples/54-s2h/vs_s2h.sc",
+    "stage": "vertex",
+    "languages": {
+        "hlsl": {
+            "status": "generated",
+            "file": "vs_s2h.hlsl",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type vertex --platform windows -p s_5_0 -i ../../src -i ../common/ --debug"
+        },
+        "glsl": {
+            "status": "generated",
+            "file": "vs_s2h.glsl",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type vertex --platform linux -p 430 -i ../../src -i ../common/ --raw"
+        },
+        "wgsl": {
+            "status": "generated",
+            "file": "vs_s2h.wgsl",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type vertex --platform linux -p wgsl -i ../../src -i ../common/"
+        },
+        "msl": {
+            "status": "generated",
+            "file": "vs_s2h.metal",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type vertex --platform osx -p metal -i ../../src -i ../common/"
+        },
+        "spirv": {
+            "status": "generated",
+            "file": "vs_s2h.spv",
+            "by": "bgfx shaderc b7d0751baa",
+            "args": "--type vertex --platform linux -p spirv -i ../../src -i ../common/"
+        }
+    }
+}

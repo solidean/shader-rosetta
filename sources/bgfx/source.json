@@ -12,7 +12,9 @@
         "examples/**/*.sc",
         "examples/**/*.sh",
         "examples/common/s2h/*.hlsl",
-        "examples/46-fsr/*.h"
+        "examples/46-fsr/*.h",
+        "examples/**/makefile",
+        "scripts/shader.mk"
     ],
     "exclude": [],
     "third_party": [
