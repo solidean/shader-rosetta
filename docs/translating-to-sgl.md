@@ -47,7 +47,7 @@ sgl emit vs_cubes.sgl --entry main --target hlsl-dx12   # and hlsl-vulkan, wgsl,
 | `gl_FragColor` | the `color` member of `@pixel struct target`; `gl_FragData[i]` is one member per target |
 | `u_modelViewProj`, `u_viewProj`, `u_model[0]`, … | members of a `binding view:` holding the ones the shader reads |
 | `uniform vec4 u_params[3]` with `#define u_x u_params[0].x` | named members, as the defines name them |
-| a uniform array indexed by a variable, or without defines | an array member, `light_pos_radius: float4[4]`; a gap today |
+| a uniform array indexed by a variable, or without defines | an array member, `light_pos_radius: float4[4]`; an element shorter than `vec4` is a gap today |
 | a uniform the shader declares but never reads | kept, so the members after it keep their places |
 | `i_data0` … (instance data) | `@per_instance` members of the `@vertex struct` |
 | a varying a vertex shader never writes | returned as its `varying.def.sc` default |
