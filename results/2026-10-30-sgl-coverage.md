@@ -1,4 +1,5 @@
 # SGL coverage
+
 Compiled by shaped-core `38b9c28f67` on 2026-10-30.
 
 368 shaders in the corpus, 104 translated to SGL (14 compute, 48 fragment, 42 vertex).
