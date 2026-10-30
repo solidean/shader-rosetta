@@ -30,11 +30,8 @@ binding terrain:
     index_buffer: buffer[uint]
     subd_buffer_in: buffer[uint]
 
-// gap: a matrix has no subscript, so a column is read back as the matrix times its axis
-fun mtx_get_column(m: mat4, column: int) -> float4:
-    let mut axis = float4(0.0)
-    axis[column] = 1.0
-    return m * axis
+// bgfx's mtxGetColumn
+fun mtx_get_column(m: mat4, column: int) -> float4 => m.column(column)
 
 fun mtx_get_element(m: mat4, column: int, row: int) -> float => mtx_get_column(m, column)[row]
 
