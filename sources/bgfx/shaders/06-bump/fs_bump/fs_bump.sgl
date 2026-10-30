@@ -1,0 +1,64 @@
+// Translated to SGL from bgfx examples/06-bump/fs_bump.sc.
+// Copyright 2011-2026 Branimir Karadzic. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding material:
+    tex_color: texture_2d[float4]
+    tex_normal: texture_2d[float4]
+    sampler s_tex:
+        filter = .linear
+
+binding lights:
+    light_pos_radius: float4[4]
+    light_rgb_inner_r: float4[4]
+
+struct varyings:
+    @position position: hpos4
+    texcoord0: float2
+    wpos: float3
+    view: float3
+    normal: float3
+    tangent: float3
+    bitangent: float3
+
+@pixel struct target:
+    color: float4
+
+fun blinn(light_dir: float3, normal: float3, view_dir: float3) -> float2:
+    let ndotl = dot(normal, light_dir)
+    let reflected = 2.0 * ndotl * normal - light_dir
+    let rdotv = dot(reflected, view_dir)
+    return float2(ndotl, rdotv)
+
+fun lit(ndotl: float, rdotv: float, m: float) -> float4:
+    let diff = max(0.0, ndotl)
+    let spec = step(0.0, ndotl) * max(0.0, rdotv * m)
+    return float4(1.0, diff, spec, 1.0)
+
+fun to_linear(c: float4) => float4(..pow(c.xyz, float3(2.2)), c.w)
+
+fun to_gamma(c: float4) => float4(..pow(c.xyz, float3(1.0 / 2.2)), c.w)
+
+fun calc_light(idx: int, tbn: mat3, wpos: float3, normal: float3, view: float3){lights} -> float3:
+    let lp = lights.light_pos_radius[idx].xyz - wpos
+    let attn = 1.0 - smoothstep(lights.light_rgb_inner_r[idx].w, 1.0, length(lp) / lights.light_pos_radius[idx].w)
+    // bgfx's mul(v, m) is the row vector times the matrix
+    let light_dir = transpose(tbn) * normalize(lp)
+    let bln = blinn(light_dir, normal, view)
+    let lc = lit(bln.x, bln.y, 1.0)
+    return lights.light_rgb_inner_r[idx].xyz * saturate(lc.y) * attn
+
+@pixel fun main(v: varyings){material, lights} -> target:
+    let tbn = mat3(v.tangent, v.bitangent, v.normal)
+
+    let nxy = material.tex_normal.sample(v.texcoord0, material.s_tex).xy * 2.0 - 1.0
+    let normal = float3(..nxy, sqrt(1.0 - dot(nxy, nxy)))
+    let view = normalize(v.view)
+
+    let mut light_color = float3(0.0)
+    for i in 0 ..< 4:
+        light_color += calc_light(i, tbn, v.wpos, normal, view)
+
+    let color = to_linear(material.tex_color.sample(v.texcoord0, material.s_tex))
+    return {
+        color = to_gamma(float4(..(max(float3(0.05), light_color) * color.xyz), 1.0))
+    }

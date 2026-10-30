@@ -1,0 +1,14 @@
+// Translated to SGL from bgfx examples/01-cubes/fs_cubes.sc.
+// Copyright 2011-2026 Branimir Karadzic. BSD-2-Clause: sources/bgfx/LICENSE.
+
+struct varyings:
+    @position position: hpos4
+    color0: float4
+
+@pixel struct target:
+    color: float4
+
+@pixel fun main(p: varyings) -> target:
+    return {
+        color = p.color0
+    }

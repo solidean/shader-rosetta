@@ -1,0 +1,50 @@
+// Translated to SGL from bgfx examples/24-nbody/cs_update_instances.sc.
+// Copyright 2014 Stanlo Slasinski. BSD-2-Clause: sources/bgfx/LICENSE.
+
+const group_size = 512
+
+binding params:
+    time_step: float
+    // bgfx carries it in a float's bits
+    dispatch_size: uint
+    gravity: float
+    damping: float
+    max_acceleration: float
+
+binding positions:
+    prev_position: buffer[float4]
+    curr_position: buffer[float4]
+    out_prev_position: mut buffer[float4]
+    out_curr_position: mut buffer[float4]
+
+@workgroup binding shared_entries:
+    other_entries: float3[group_size]
+
+fun calc_acceleration(curr_position: float3, other_position: float3){params} -> float3:
+    let difference = other_position - curr_position
+    let dist2 = dot(difference, difference)
+    let dist6 = dist2 * dist2 * dist2
+    let inv_dist3 = 1.0 / (sqrt(dist6) + 0.1)
+    return params.gravity * params.gravity * inv_dist3 * difference
+
+@compute(group_size) fun main(@thread_id id: int3, @local_thread_index local: int){params, positions, shared_entries}:
+    let prev_position = positions.prev_position[id.x].xyz
+    let curr_position = positions.curr_position[id.x].xyz
+
+    let mut new_acceleration = float3(0.0)
+    for j in 0 ..< (params.dispatch_size as int):
+        shared_entries.other_entries[local] = positions.curr_position[j * group_size + local].xyz
+        workgroup_barrier()
+        for i in 0 ..< group_size:
+            new_acceleration += calc_acceleration(curr_position, shared_entries.other_entries[i])
+
+    new_acceleration += (prev_position - curr_position) * params.damping
+    let acceleration_magnitude = length(new_acceleration)
+    let color = pow(min(acceleration_magnitude / 3.0, 1.0), 0.25)
+    if acceleration_magnitude > 0.0:
+        new_acceleration = normalize(new_acceleration) * min(acceleration_magnitude, params.max_acceleration)
+
+    let new_position = 2.0 * curr_position - prev_position + new_acceleration * params.time_step
+
+    positions.out_prev_position[id.x] = float4(..curr_position, 0.0)
+    positions.out_curr_position[id.x] = float4(..new_position, color)
