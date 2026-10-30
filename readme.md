@@ -35,6 +35,34 @@ Every source is recorded with its upstream repository, the commit its files were
 | [bgfx](sources/bgfx/source.json) | [bkaradzic/bgfx](https://github.com/bkaradzic/bgfx) | `b7d0751baa` (2026-10-29) | BSD-2-Clause, with BSD-3-Clause and MIT parts |
 
 bgfx's 368 example shaders are the corpus of Branimir Karadzic's [shader compiler survey](https://bkaradzic.github.io/posts/ideal-shader-compiler/), which makes our numbers comparable with his.
+His survey publishes neither its corpus nor its harness, so ours is generated with bgfx's own `shaderc` at the pinned commit, and lands within a few percent of his sizes:
+
+| | here | the survey |
+|---|---|---|
+| HLSL | 320K non-blank lines | 316K lines |
+| SPIR-V | 1.95 MB | 1.9 MB |
+| WGSL | 44K lines | 41K lines |
+| MSL | 40K lines | 37K lines |
+
+- **HLSL** is the text shaderc hands FXC, from `-p s_5_0 --debug`.
+  bgfx's SPIR-V path compiles that same text, through glslang's HLSL front end.
+  Every shader starts with the same thousand lines of helpers, which is why HLSL is ten times the size of the rest.
+- **GLSL** is OpenGL GLSL 4.30, from `-p 430 --raw`.
+- **WGSL, MSL and SPIR-V** are cut out of shaderc's output container, which `--raw` does not reach for them.
+
+### Regenerating bgfx
+
+`shaderc` must come from the commit `source.json` pins.
+GENie builds it next to clones of [bx](https://github.com/bkaradzic/bx) and [bimg](https://github.com/bkaradzic/bimg).
+On Windows the build needs a short path, since spirv-tools' file names overrun `MAX_PATH`:
+
+```bash
+cd bgfx && ../bx/tools/bin/windows/genie --with-tools vs2022
+msbuild .build/projects/vs2022/shaderc.vcxproj -p:Configuration=Release -p:Platform=x64
+uv run tools/generate-bgfx.py --shaderc <bgfx>/.build/win64_vs2022/bin/shadercRelease.exe
+```
+
+The output is deterministic: a second run changes no file.
 
 ## Layout
 
