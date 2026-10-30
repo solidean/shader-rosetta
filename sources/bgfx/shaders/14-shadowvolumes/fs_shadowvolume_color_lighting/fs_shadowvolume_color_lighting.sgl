@@ -1,0 +1,92 @@
+// Translated to SGL from bgfx examples/14-shadowvolumes/fs_shadowvolume_color_lighting.sc and examples/common/shaderlib.sh.
+// Copyright 2013-2014 Dario Manesku. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding view:
+    view_texel: float4
+    view: mat4
+
+// bgfx's uniforms in declaration order, one member per define
+binding params:
+    ambient_pass: float
+    lighting_pass: float
+    texel_half: float
+    unused0: float
+    // u_svparams: x is read here, y is fs_shadowvolume_svsidetex's u_dfail
+    use_stencil_tex: float
+    dfail: float
+    unused1: float
+    unused2: float
+    ambient: float4
+    diffuse: float4
+    color: float4
+    specular: float3
+    shininess: float
+    fog_color: float3
+    fog_density: float
+    light_pos_radius: float4
+    light_rgb_inner_r: float4
+
+binding material:
+    tex_stencil: texture_2d[float4]
+    sampler s_tex_stencil:
+        filter = .linear
+
+struct varyings:
+    @position position: hpos4
+    normal: float3
+    view: float3
+
+@pixel struct target:
+    color: float4
+
+const log2_e = 1.442695
+
+fun blinn(light_dir: float3, normal: float3, view_dir: float3) -> float2:
+    let ndotl = dot(normal, light_dir)
+    // reflect(light_dir, normal)
+    let reflected = 2.0 * ndotl * normal - light_dir
+    let rdotv = dot(reflected, view_dir)
+    return float2(ndotl, rdotv)
+
+fun lit(ndotl: float, rdotv: float, m: float) -> float4:
+    let diff = max(0.0, ndotl)
+    let spec = step(0.0, ndotl) * pow(max(0.0, rdotv), m)
+    return float4(1.0, diff, spec, 1.0)
+
+fun calc_light(view_pos: float3, normal: float3, view_dir: float3){view, params} -> float3:
+    let light_pos = (view.view * float4(..params.light_pos_radius.xyz, 1.0)).xyz
+    let to_light = light_pos - view_pos
+    let light_dir = normalize(to_light)
+
+    let bln = blinn(light_dir, normal, view_dir)
+    let lc = lit(bln.x, bln.y, params.shininess)
+
+    let dist = max(length(to_light), params.light_pos_radius.w)
+    let attn = 50.0 * pow(dist, -2.0)
+    return (lc.y * params.diffuse.xyz + lc.z * params.specular) * params.light_rgb_inner_r.rgb * attn
+
+fun to_gamma(c: float3) => pow(abs(c), float3(1.0 / 2.2))
+
+@pixel fun main(v: varyings){view, params, material} -> target:
+    let ambient_color = params.ambient.xyz * params.ambient_pass
+
+    let normal = normalize(v.normal)
+    let view_dir = -normalize(v.view)
+    let light_color = calc_light(v.view, normal, view_dir) * params.lighting_pass
+
+    let ndc = v.position.xy * view.view_texel.xy + view.view_texel.xy * params.texel_half
+    let texcolor = material.tex_stencil.sample(ndc, material.s_tex_stencil)
+    let s = ((texcolor.x - texcolor.y) + 2.0 * (texcolor.z - texcolor.w)) * params.use_stencil_tex
+
+    let z = length(v.view)
+    let fog_factor = clamp(1.0 / exp2(params.fog_density * params.fog_density * z * z * log2_e), 0.0, 1.0)
+
+    let color = params.color.xyz
+
+    let ambient = to_gamma(ambient_color * color)
+    let diffuse = to_gamma(light_color * color)
+    let final_color = mix(ambient, ambient + diffuse, select(abs(s) < 0.0001, 1.0, 0.0))
+
+    return {
+        color = float4(..mix(params.fog_color, final_color, fog_factor), 1.0)
+    }

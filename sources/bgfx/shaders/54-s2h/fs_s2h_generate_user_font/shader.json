@@ -31,6 +31,10 @@
             "file": "fs_s2h_generate_user_font.spv",
             "by": "bgfx shaderc b7d0751baa",
             "args": "--type fragment --platform linux -p spirv -i ../../src -i ../common/"
+        },
+        "sgl": {
+            "status": "translated",
+            "file": "fs_s2h_generate_user_font.sgl"
         }
     }
 }

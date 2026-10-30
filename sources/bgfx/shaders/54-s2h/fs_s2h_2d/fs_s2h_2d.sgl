@@ -1,0 +1,628 @@
+// Translated to SGL from bgfx examples/54-s2h/fs_s2h_2d.sc, with common/s2h/s2h.sh, s2h_bgfx.sh and s2h.hlsl.
+// The original carries no copyright line; bgfx: Copyright 2010-2026 Branimir Karadzic. BSD-2-Clause: sources/bgfx/LICENSE.
+// Shader To Human (S2H): Copyright (c) 2024-2025 Electronic Arts Inc. BSD-3-Clause: sources/bgfx/licenses/ShaderToHuman.txt.
+
+// Fragment-renderer port of ShaderToHuman-bgfx/examples/Features/2D_example.hlsl.
+
+binding params:
+    s2h_time: float4
+    s2h_mouse: float4
+
+struct varyings:
+    @position position: hpos4
+    color0: float4
+    texcoord0: float2
+
+@pixel struct target:
+    color: float4
+
+const pi = 3.14159265
+
+// ---- s2h_bgfx.sh ----
+
+// S2H uses a top-left pixel origin; bgfx_ndc.z is the OpenGL origin sign.
+// The original's GLSL arm flips y by it; no SGL target has GL's origin, so this is its other arm.
+fun s2h_get_pixel_coord(fragment_coord: float2) -> float2:
+    return fragment_coord
+
+// ---- s2h.hlsl ----
+
+// pixel shader or compute shader looping through all pixels
+struct context_gather:
+    // in pixels, no fractional part (half pixel offset)
+    px_cursor: float2
+    // 1/2/3/4
+    scale: float
+    // .xy:-100,-100 if not yet set, .xy:absolutePos, z:leftMouse 0/1, w:rightMouse 0/1, no fractional part (half pixel offset)
+    mouse_input: float4
+
+    // window left top, no fractional part (half pixel offset), set by s2h_setPos(), used by s2h_printLF()
+    px_left_x: float
+    // in pixels, no fractional part (half pixel offset), set by s2h_init()
+    px_pos: float2
+    // premultiplied RGBA, alpha 1 is assumed to be opaque, don't init with a color or s2h_button() will not work
+    dst_color: float4
+
+    // RGBA, alpha 1 is assumed to be opaque, s2h_progress()
+    text_color: float4
+    // for s2h_frame()
+    frame_fill_color: float4
+    // for s2h_frame()
+    frame_border_color: float4
+    // for s2h_button(), s2h_checkbox(), s2h_radiobutton, s2h_progress(), s2h_sliderFloat()
+    button_color: float4
+    line_width: float
+
+    // private ----------------------
+
+    // for interactive UI, read int4 state from former frame
+    s2h_state: int4
+
+// You can define this to provide your own font (different size, visual or better lookup performance by using a texture)
+const g_mini_font: uint[192] = [
+    0x00306c6cu, 0x30003860u, 0x18600000u, 0x00000006u,
+    0x00786c6cu, 0x7cc66c60u, 0x30306630u, 0x0000000cu,
+    0x00786cfeu, 0xc0cc38c0u, 0x60183c30u, 0x00000018u,
+    0x0030006cu, 0x78187600u, 0x6018fffcu, 0x00fc0030u,
+    0x003000feu, 0x0c30dc00u, 0x60183c30u, 0x00000060u,
+    0x0000006cu, 0xf866cc00u, 0x30306630u, 0x300030c0u,
+    0x0030006cu, 0x30c67600u, 0x18600000u, 0x30003080u,
+    0x00000000u, 0x00000000u, 0x00000000u, 0x60000000u,
+    0x7c307878u, 0x1cfc38fcu, 0x78780000u, 0x18006078u,
+    0xc670ccccu, 0x3cc060ccu, 0xcccc3030u, 0x300030ccu,
+    0xce300c0cu, 0x6cf8c00cu, 0xcccc3030u, 0x60fc180cu,
+    0xde303838u, 0xcc0cf818u, 0x787c0000u, 0xc0000c18u,
+    0xf630600cu, 0xfe0ccc30u, 0xcc0c0000u, 0x60001830u,
+    0xe630ccccu, 0x0ccccc30u, 0xcc183030u, 0x30fc3000u,
+    0x7cfcfc78u, 0x1e787830u, 0x78703030u, 0x18006030u,
+    0x00000000u, 0x00000000u, 0x00000060u, 0x00000000u,
+    0x7c30fc3cu, 0xf8fefe3cu, 0xcc781ee6u, 0xf0c6c638u,
+    0xc6786666u, 0x6c626266u, 0xcc300c66u, 0x60eee66cu,
+    0xdecc66c0u, 0x666868c0u, 0xcc300c6cu, 0x60fef6c6u,
+    0xdecc7cc0u, 0x667878c0u, 0xfc300c78u, 0x60fedec6u,
+    0xdefc66c0u, 0x666868ceu, 0xcc30cc6cu, 0x62d6cec6u,
+    0xc0cc6666u, 0x6c626066u, 0xcc30cc66u, 0x66c6c66cu,
+    0x78ccfc3cu, 0xf8fef03eu, 0xcc7878e6u, 0xfec6c638u,
+    0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u,
+    0xfc78fc78u, 0xfcccccc6u, 0xc6ccfe78u, 0xc0781000u,
+    0x66cc66ccu, 0xb4ccccc6u, 0xc6ccc660u, 0x60183800u,
+    0x66cc66e0u, 0x30ccccc6u, 0x6ccc8c60u, 0x30186c00u,
+    0x7ccc7c70u, 0x30ccccd6u, 0x38781860u, 0x1818c600u,
+    0x60dc6c1cu, 0x30ccccfeu, 0x38303260u, 0x0c180000u,
+    0x607866ccu, 0x30cc78eeu, 0x6c306660u, 0x06180000u,
+    0xf01ce678u, 0x78fc30c6u, 0xc678fe78u, 0x02780000u,
+    0x00000000u, 0x00000000u, 0x00000000u, 0x000000ffu,
+    0x3000e000u, 0x1c003800u, 0xe0300ce0u, 0x70000000u,
+    0x30006000u, 0x0c006c00u, 0x60000060u, 0x30000000u,
+    0x18786078u, 0x0c786076u, 0x6c700c66u, 0x30ccf878u,
+    0x000c7cccu, 0x7cccf0ccu, 0x76300c6cu, 0x30feccccu,
+    0x007c66c0u, 0xccfc60ccu, 0x66300c78u, 0x30feccccu,
+    0x00cc66ccu, 0xccc0607cu, 0x6630cc6cu, 0x30d6ccccu,
+    0x0076dc78u, 0x7678f00cu, 0xe678cce6u, 0x78c6cc78u,
+    0x00000000u, 0x000000f8u, 0x00007800u, 0x00000000u,
+    0x00000000u, 0x10000000u, 0x0000001cu, 0x18e076ffu,
+    0x00000000u, 0x30000000u, 0x00000030u, 0x1830dcffu,
+    0xdc76dc7cu, 0x7cccccc6u, 0xc6ccfc30u, 0x183000ffu,
+    0x66cc76c0u, 0x30ccccd6u, 0x6ccc98e0u, 0x001c00ffu,
+    0x66cc6678u, 0x30ccccfeu, 0x38cc3030u, 0x183000ffu,
+    0x7c7c600cu, 0x34cc78feu, 0x6c7c6430u, 0x183000ffu,
+    0x600cf0f8u, 0x1876306cu, 0xc60cfc1cu, 0x18e000ffu,
+    0xf01e0000u, 0x00000000u, 0x00f80000u, 0x000000ffu
+]
+
+// todo: consider define or static cost int or float
+// 8x8 font
+fun s2h_font_size() -> float:
+    return 8.0
+
+// don't use directly
+// can be used for scatter and gather
+// @param ascii 32..127 are valid characters
+// @param pxPos int2(0..s2h_fontSize()-1, 0..s2h_fontSize-1)
+// @return true if there should be a pixel, false if not or outside the valid range
+fun s2h_font_lookup(ascii: uint, px_pos: int2) -> bool:
+    if (px_pos.x as uint) >= 8u or (px_pos.y as uint) >= 8u => return false
+
+    if ascii <= 32u or ascii > 127u => return false
+
+    // 0..16*6-1
+    let chr = ascii - 32u
+    // uint2(0..127, 0..47)
+    let chr_pos = uint2(chr % 16u, chr / 16u)
+    let pixel = uint2(chr_pos.x * 8u + (px_pos.x as uint), chr_pos.y * 8u + (px_pos.y as uint))
+    let dword_id = pixel.x / 32u + (pixel.y * 4u)
+    // 0..31
+    let bit_id = pixel.x & 0x1fu
+
+    // 0..ff
+    let dword_value = g_mini_font[dword_id]
+
+    return ((dword_value >> (31u - bit_id)) & 1u) != 0u
+
+// don't use directly
+fun s2h_print_character(ui: mut context_gather, ascii: uint):
+    let px_local = int2(floor((ui.px_pos - ui.px_cursor) / ui.scale))
+
+    if s2h_font_lookup(ascii, px_local):
+        ui.dst_color = mix(ui.dst_color, float4(..ui.text_color.rgb, 1.0), ui.text_color.a)
+
+    ui.px_cursor.x += s2h_font_size() * ui.scale
+
+const _A = 65u
+const _B = 66u
+const _D = 68u
+const _E = 69u
+const _H = 72u
+const _I = 73u
+const _L = 76u
+const _M = 77u
+const _O = 79u
+const _P = 80u
+const _R = 82u
+const _S = 83u
+const _T = 84u
+const _W = 87u
+const _Y = 89u
+const _a = _A + 32u
+const _b = _B + 32u
+const _d = _D + 32u
+const _e = _E + 32u
+const _h = _H + 32u
+const _i = _I + 32u
+const _l = _L + 32u
+const _m = _M + 32u
+const _o = _O + 32u
+const _p = _P + 32u
+const _r = _R + 32u
+const _s = _S + 32u
+const _t = _T + 32u
+const _w = _W + 32u
+const _y = _Y + 32u
+const _SPACE = 32u
+const _0 = 48u
+const _1 = 49u
+const _2 = 50u
+const _5 = 53u
+const _7 = 55u
+
+// first call this
+fun s2h_init(in_px_pos: float2) -> context_gather:
+    return {
+        // white, opaque
+        text_color = float4(1.0, 1.0, 1.0, 1.0)
+        px_left_x = 0.0
+        px_cursor = float2(0.0, 0.0)
+        scale = 1.0
+        mouse_input = float4(-100.0, -100.0, 0.0, 0.0)
+
+        px_pos = in_px_pos
+        // see through
+        dst_color = float4(0.0, 0.0, 0.0, 0.0)
+        s2h_state = int4(0, 0, 0, 0)
+
+        frame_fill_color = float4(0.9, 0.9, 0.9, 1.0)
+        frame_border_color = float4(0.7, 0.7, 0.7, 1.0)
+        button_color = float4(0.5, 0.5, 0.5, 1.0)
+        line_width = 2.0
+    }
+
+// set text cursor position, next printLF() will reset to this x position
+fun s2h_set_cursor(ui: mut context_gather, in_px_left_top: float2):
+    ui.px_cursor = in_px_left_top
+    ui.px_left_x = in_px_left_top.x
+
+// @param scale 1:pixel perfect, 2:2x, 3:3x, ..
+fun s2h_set_scale(ui: mut context_gather, scale: float):
+    ui.scale = scale
+
+// e.g. ui.s2h_printTxt('I', ' ', 'a', 'm');
+// @param a ascii character or 0
+fun s2h_print_txt(ui: mut context_gather, a: uint):
+    s2h_print_character(mut ui, a)
+
+// glsl has no default arguments to we implement multiple functions instead making porting easier
+fun s2h_print_txt(ui: mut context_gather, a: uint, b: uint):
+    s2h_print_txt(mut ui, a)
+    s2h_print_character(mut ui, b)
+
+fun s2h_print_txt(ui: mut context_gather, a: uint, b: uint, c: uint):
+    s2h_print_txt(mut ui, a, b)
+    s2h_print_character(mut ui, c)
+
+fun s2h_print_txt(ui: mut context_gather, a: uint, b: uint, c: uint, d: uint):
+    s2h_print_txt(mut ui, a, b, c)
+    s2h_print_character(mut ui, d)
+
+fun s2h_print_txt(ui: mut context_gather, a: uint, b: uint, c: uint, d: uint, e: uint):
+    s2h_print_txt(mut ui, a, b, c, d)
+    s2h_print_character(mut ui, e)
+
+fun s2h_print_txt(ui: mut context_gather, a: uint, b: uint, c: uint, d: uint, e: uint, f: uint):
+    s2h_print_txt(mut ui, a, b, c, d, e)
+    s2h_print_character(mut ui, f)
+
+// useful for table headers and to center text
+fun s2h_print_space(ui: mut context_gather, number_of_chars: float):
+    ui.px_cursor.x += s2h_font_size() * number_of_chars * ui.scale
+
+// jump to next line (line feed)
+fun s2h_print_lf(ui: mut context_gather):
+    ui.px_cursor.x = ui.px_left_x
+    ui.px_cursor.y += s2h_font_size() * ui.scale
+
+// draw anti aliased filled disc
+fun s2h_draw_disc(ui: mut context_gather, px_center: float2, px_radius: float, color: float4):
+    let px_local = ui.px_pos - px_center
+
+    let len = length(px_local)
+    let mask = saturate(px_radius - len)
+
+    ui.dst_color = mix(ui.dst_color, float4(..color.rgb, 1.0), color.a * mask)
+
+// draw anti aliased circle
+// uses ui.lineWidth
+fun s2h_draw_circle(ui: mut context_gather, px_center: float2, px_radius: float, color: float4):
+    let r = ui.line_width * 0.5
+    let px_local = ui.px_pos - px_center
+
+    let len = length(px_local)
+    let mask = saturate(px_radius - len + r) * (1.0 - saturate(px_radius - len - r))
+
+    ui.dst_color = mix(ui.dst_color, float4(..color.rgb, 1.0), color.a * mask)
+
+// draw anti aliased half space
+fun s2h_draw_half_space(ui: mut context_gather, half_space: float3, visualize_point: float2, color: float4, px_circle_radius: float, line_radius: float):
+    // normalize
+    let half_space = half_space / length(half_space.xy)
+
+    let on_point = visualize_point - half_space.xy * dot(half_space, float3(..visualize_point, 1.0))
+
+    let plane_dist = dot(half_space, float3(..ui.px_pos, 1.0))
+    let disk_dist = length(on_point - ui.px_pos)
+
+    // 0..1
+    let side_mask = saturate(plane_dist)
+    // 0..1
+    let line_mask = saturate(ui.line_width - abs(plane_dist - ui.line_width)) * saturate(line_radius - disk_dist)
+    // 0..1
+    let semi_disk_mask = saturate(px_circle_radius - disk_dist) * side_mask
+    let mask = max(semi_disk_mask, line_mask)
+
+    ui.dst_color = mix(ui.dst_color, float4(..color.rgb, 1.0), color.a * mask)
+
+// draw not anti aliased rectangle (fast and simple),
+// @param pxLeftTop included
+// @param pxBottomRight excluded
+fun s2h_draw_rectangle(ui: mut context_gather, px_left_top: float2, px_bottom_right: float2, color: float4):
+    if ui.px_pos.x >= px_left_top.x and ui.px_pos.y >= px_left_top.y and ui.px_pos.x < px_bottom_right.x and ui.px_pos.y < px_bottom_right.y:
+        ui.dst_color = mix(ui.dst_color, float4(..color.rgb, 1.0), color.a)
+
+// border half inwards and half outwards, pxThickness >0 results in rounded corners
+fun s2h_draw_rectangle_aa(ui: mut context_gather, px_a: float2, px_b: float2, border_color: float4, inner_color: float4, px_thickness: float):
+    let r = px_thickness * 0.5
+
+    let px_center = (px_a + px_b) * 0.5
+    let px_half_size = abs(px_b - px_a) * 0.5
+
+    let px_local_outer = max(abs(ui.px_pos - px_center) - px_half_size, float2(0.0, 0.0))
+    let px_local_inner = max(abs(ui.px_pos - px_center) - px_half_size + r, float2(0.0, 0.0))
+
+    let mask_outer = saturate(1.0 + r - length(px_local_outer))
+    let mask_inner = saturate(length(px_local_inner) - 0.5)
+
+    let color = mix(inner_color, float4(..border_color.rgb, 1.0), border_color.a * mask_inner)
+
+    ui.dst_color = mix(ui.dst_color, float4(..color.rgb, 1.0), color.a * mask_outer)
+
+// anti aliased, px position should be pixel centered (+0.5)
+// uses ui.lineWidth
+fun s2h_draw_crosshair(ui: mut context_gather, px_center: float2, px_radius: float, color: float4):
+    let h = float2(px_radius, 0.0)
+    let v = float2(0.0, px_radius)
+
+    s2h_draw_line(mut ui, px_center - h, px_center + h, color)
+    s2h_draw_line(mut ui, px_center - v, px_center + v, color)
+
+// hard edges, anti aliased, px position should be pixel centered (+0.5)
+// uses ui.lineWidth
+fun s2h_draw_line(ui: mut context_gather, px_begin: float2, px_end: float2, color: float4):
+    let px_thickness = ui.line_width + 1.0
+    let r = px_thickness * 0.5
+    let delta = px_end - px_begin
+    let len = length(delta)
+    if len > 0.01:
+        let tangent = delta / len
+        let normal = float2(tangent.y, -tangent.x)
+        let local = ui.px_pos - px_begin
+        let uv = float2(dot(local, tangent), dot(local, normal))
+        // 0...1
+        let mask = saturate(r - abs(uv.y)) * saturate(r - uv.x + len) * saturate(r + uv.x)
+
+        ui.dst_color = mix(ui.dst_color, float4(..color.rgb, 1.0), color.a * mask)
+
+// 256x32 horizontal color ramp in sRGB space, 128 should be in the middle, RGB color gradient on outside
+fun s2h_draw_srgb_ramp(ui: mut context_gather, px_pos: float2):
+    // snap to pixel center
+    let px_pos = floor(px_pos) + 0.5
+
+    let local = ui.px_pos - px_pos
+
+    let mut u = local.x / 256.0
+
+    if local.y > 16.0 => u = floor(u * 16.0) / 16.0
+
+    let col = s2h_accurate_srgb_to_linear(float3(u, u, u))
+
+    s2h_draw_rectangle(mut ui, px_pos - 2.0, px_pos + float2(256.0, 32.0) + 2.0, float4(..s2h_color_ramp_rgb(u), 1.0))
+    s2h_draw_rectangle(mut ui, px_pos, px_pos + float2(256.0, 32.0), float4(..col, 1.0))
+
+    let backup = ui
+    s2h_set_scale(mut ui, 1.0)
+    ui.text_color = float4(1.0, 1.0, 1.0, 1.0)
+    s2h_set_cursor(mut ui, px_pos + float2(2.0, 22.0))
+    s2h_print_txt(mut ui, _0)
+    s2h_set_cursor(mut ui, px_pos + float2(128.0 - 1.5 * 8.0, 22.0))
+    s2h_print_txt(mut ui, _1, _2, _7)
+    ui.text_color = float4(0.0, 0.0, 0.0, 1.0)
+    s2h_set_cursor(mut ui, px_pos + float2(256.0 - 3.2 * 8.0, 22.0))
+    s2h_print_txt(mut ui, _2, _5, _5)
+
+    ui.px_cursor = backup.px_cursor
+    ui.scale = backup.scale
+    ui.text_color = backup.text_color
+    ui.px_left_x = backup.px_left_x
+
+// @param aabb .x:minx, .y:miny, z:maxx, w:maxy
+// The original takes ui inout and never writes it, so it is a plain parameter here.
+fun s2h_compute_dist_to_box(ui: context_gather, p: float2, aabb: float4) -> float:
+    let center = (aabb.xy + aabb.zw) * 0.5
+    let half_size = (aabb.zw - aabb.xy) * 0.5
+    let px_local = p - center // - float2(3.5f, 3.5f) / ui.scale;
+    let dist2 = max(float2(0.0, 0.0), abs(px_local) - half_size)
+    return max(dist2.x, dist2.y)
+
+fun s2h_slider_float(ui: mut context_gather, width_in_characters: uint, value: mut float, min_value: float, max_value: float):
+    let color = ui.button_color
+    let mut outer_aabb = float4(
+        ..ui.px_cursor,
+        ..(ui.px_cursor + float2((width_in_characters as float) * s2h_font_size(), s2h_font_size() - 2.0) * ui.scale)
+    )
+    outer_aabb += 0.5
+
+    let half_char = s2h_font_size() / 2.0
+
+    // shrink
+    let inner_aabb = outer_aabb + float4(1.0, 1.0, -1.0, -1.0) * ui.scale
+
+    let slider_dist = s2h_compute_dist_to_box(ui, ui.px_pos, outer_aabb)
+
+    // todo: active button should be made for all UI interactive buttons (checkbox, radio, button)
+    let current_mouse = if ui.s2h_state.x == 0 and ui.s2h_state.y == 0 => ui.mouse_input.xy else float2(ui.s2h_state.xy)
+
+    let mouse_over = s2h_compute_dist_to_box(ui, current_mouse, outer_aabb) <= 0.0
+
+    let mut knob_color = ui.text_color.rgb
+
+    // mouse over and left mouse button pressed
+    if mouse_over and ui.mouse_input.z != 0.0:
+        let new_fraction = saturate((ui.mouse_input.x - inner_aabb.x) / (inner_aabb.z - inner_aabb.x))
+        value = mix(min_value, max_value, new_fraction)
+
+        knob_color = float3(1.0, 1.0, 1.0)
+
+        // todo: active button should be made for all UI interactive buttons (checkbox, radio, button)
+        if ui.s2h_state.x == 0 and ui.s2h_state.y == 0 => ui.s2h_state.xy = int2(ui.mouse_input.xy)
+
+    let fraction = saturate((value - min_value) / (max_value - min_value))
+
+    let knob_range = ((width_in_characters as float) - 1.0) * s2h_font_size() * ui.scale
+    let knob_pos = ui.px_cursor + float2(half_char * ui.scale, 0.0) + float2(fraction * knob_range, 3.0 * ui.scale)
+    let knob_size = float2(s2h_font_size() - 4.0, s2h_font_size() - 4.0) * 0.5 * ui.scale
+    let mut knob_aabb = float4(..(knob_pos - knob_size), ..(knob_pos + knob_size))
+    knob_aabb += 0.5
+
+    let knob_dist = s2h_compute_dist_to_box(ui, ui.px_pos, knob_aabb)
+
+    let mut local_color = float4(0.0, 0.0, 0.0, 0.0)
+
+    if mouse_over and slider_dist <= 2.0 => local_color = float4(1.0, 1.0, 1.0, 1.0)
+
+    // no AA for now
+    if slider_dist <= 0.0 => local_color = color
+
+    //	if(innerDist <= 0.0f)
+    //		localColor = lerp(localColor, float4(ui.textColor.rgb, 1), ui.textColor.a);
+
+    if knob_dist <= 0.0 => local_color = mix(local_color, float4(..knob_color, 1.0), ui.text_color.a)
+
+    ui.px_cursor.x += (width_in_characters as float) * s2h_font_size() * ui.scale
+
+    ui.dst_color = mix(ui.dst_color, float4(..local_color.rgb, 1.0), local_color.a * (1.0 - ui.dst_color.a))
+
+// LDR color (0..1 range) with alpha
+fun s2h_slider_rgba(ui: mut context_gather, width_in_characters: uint, value: mut float4):
+    let r = 3.0 * s2h_font_size() * 0.5 * ui.scale - 1.0
+    let backup = ui.button_color
+
+    let initial_pos = ui.px_cursor
+    let pos = initial_pos + float2(3.0 * s2h_font_size() * ui.scale, 0.0)
+
+    ui.px_cursor.x = pos.x
+    ui.button_color = float4(1.0, 0.1, 0.1, 1.0)
+    s2h_slider_float(mut ui, width_in_characters - 3u, mut value.r, 0.0, 1.0)
+    s2h_print_lf(mut ui)
+
+    ui.px_cursor.x = pos.x
+    ui.button_color = float4(0.0, 1.0, 0.0, 1.0)
+    s2h_slider_float(mut ui, width_in_characters - 3u, mut value.g, 0.0, 1.0)
+    s2h_print_lf(mut ui)
+
+    ui.px_cursor.x = pos.x
+    ui.button_color = float4(0.2, 0.2, 1.0, 1.0)
+    s2h_slider_float(mut ui, width_in_characters - 3u, mut value.b, 0.0, 1.0)
+    s2h_print_lf(mut ui)
+
+    ui.px_cursor.x = pos.x
+    ui.button_color = float4(0.5, 0.5, 0.5, 1.0)
+    s2h_slider_float(mut ui, width_in_characters - 3u, mut value.a, 0.0, 1.0)
+    s2h_print_lf(mut ui)
+
+    // todo: don't abuse circle drawing for disk drawing
+    // todo: check if sRGB blending is right, it looks wrong with white
+    s2h_draw_disc(mut ui, initial_pos + r, r, value)
+
+    ui.px_cursor = initial_pos + float2((width_in_characters as float) * s2h_font_size() * ui.scale, 0.0)
+
+    ui.button_color = backup
+
+// slow but accurate
+fun s2h_accurate_srgb_to_linear(srgb_col: float3) -> float3:
+    let linear_rgb_lo = srgb_col / 12.92
+    let linear_rgb_hi = pow((srgb_col + 0.055) / 1.055, float3(2.4, 2.4, 2.4))
+    return float3(
+        if srgb_col.r <= 0.04045 => linear_rgb_lo.r else linear_rgb_hi.r,
+        if srgb_col.g <= 0.04045 => linear_rgb_lo.g else linear_rgb_hi.g,
+        if srgb_col.b <= 0.04045 => linear_rgb_lo.b else linear_rgb_hi.b
+    )
+
+// extremely different colors, 0 is black
+// intentionally not randomized so small indices result in human recognizable colors
+// repeats every 512 elements
+fun s2h_index_to_color(index: uint) -> float3:
+    let a = (index >> 0u) & 1u
+    let d = (index >> 1u) & 1u
+    let g = (index >> 2u) & 1u
+
+    let b = (index >> 3u) & 1u
+    let e = (index >> 4u) & 1u
+    let h = (index >> 5u) & 1u
+
+    let c = (index >> 6u) & 1u
+    let f = (index >> 7u) & 1u
+    let i = (index >> 8u) & 1u
+
+    return float3(uint3(a * 4u + b * 2u + c, d * 4u + e * 2u + f, g * 4u + h * 2u + i)) / 7.0
+
+// @param 0..1
+// @return 0:red, 0.5:green, 1:blue, outside is clamped
+fun s2h_color_ramp_rgb(value: float) -> float3:
+    return float3(
+        saturate(1.0 - abs(value) * 2.0),
+        saturate(1.0 - abs(value - 0.5) * 2.0),
+        saturate(1.0 - abs(value - 1.0) * 2.0)
+    )
+
+fun draw_eye(ui: mut context_gather, center: float2):
+    let mut offset = ui.mouse_input.xy - center
+    let offset_length = length(offset)
+    if offset_length > 11.0:
+        offset *= 11.0 / offset_length
+
+    s2h_draw_disc(mut ui, center, 30.0, float4(0.0, 0.0, 0.0, 1.0))
+    s2h_draw_disc(mut ui, center, 25.0, float4(1.0, 1.0, 1.0, 1.0))
+    s2h_draw_disc(mut ui, center + offset, 15.0, float4(0.0, 0.0, 0.0, 1.0))
+
+fun draw_blending_example(ui: mut context_gather):
+    let background_color = float3(0.3, 0.6, 0.9)
+    let mut over_color = background_color
+    let mut under_accumulator = float4(0.0, 0.0, 0.0, 0.0)
+
+    for peel_id in 0 ..< 5:
+        let angle = (peel_id as float) * 0.6
+        let color = s2h_index_to_color(peel_id as uint)
+        let center = float2(sin(angle), cos(angle)) * 60.0 + float2(105.0, 450.0)
+        let alpha = saturate(2.0 - length(ui.px_pos - center) / 25.0)
+        over_color = mix(over_color, color, alpha)
+        under_accumulator.rgb += color * alpha * (1.0 - under_accumulator.a)
+        under_accumulator.a = 1.0 - (1.0 - alpha) * (1.0 - under_accumulator.a)
+
+    let under_color = background_color * (1.0 - under_accumulator.a) + under_accumulator.rgb
+    let rectangle = float4(10.0, 300.0, 290.0, 590.0)
+    s2h_draw_rectangle(mut ui, rectangle.xy - 3.0, rectangle.zw + 3.0, float4(0.0, 0.0, 0.0, 1.0))
+
+    let mut color = float3(1.0, 0.0, 0.0)
+    if ui.px_pos.x >= rectangle.x and ui.px_pos.y >= rectangle.y and ui.px_pos.x < rectangle.z and ui.px_pos.y < rectangle.w:
+        let comparison = floor(ui.px_pos.x) - floor(ui.mouse_input.x)
+        color = if comparison < -2.0 => under_color else if comparison > 2.0 => over_color else float3(1.0, 1.0, 0.0)
+    s2h_draw_rectangle(mut ui, rectangle.xy, rectangle.zw, float4(..color, 1.0))
+
+@pixel fun main(p: varyings){params} -> target:
+    let mut ui = s2h_init(s2h_get_pixel_coord(p.position.xy))
+    ui.mouse_input = params.s2h_mouse
+    s2h_set_cursor(mut ui, float2(10.0, 10.0))
+
+    let mut top_color = float4(0.95, 0.25, 0.25, 0.8)
+    let mut bottom_color = float4(0.25, 0.45, 0.95, 0.8)
+    let mut border_sizes = float2(4.0, 8.0)
+
+    ui.text_color.rgb = float3(1.0, 1.0, 1.0)
+    s2h_set_scale(mut ui, 3.0)
+    s2h_print_txt(mut ui, _2, _D, _T, _e, _s, _t)
+    s2h_print_lf(mut ui)
+    s2h_print_lf(mut ui)
+    ui.text_color.rgb = float3(0.0, 0.0, 0.0)
+    s2h_set_scale(mut ui, 2.0)
+    s2h_print_txt(mut ui, _w, _i, _t, _h, _SPACE)
+    s2h_print_txt(mut ui, _A, _A)
+
+    ui.px_cursor = float2(200.0, 5.0)
+    ui.px_left_x = ui.px_cursor.x
+    s2h_slider_rgba(mut ui, 8u, mut top_color)
+    s2h_print_space(mut ui, 1.0)
+    s2h_print_txt(mut ui, _t, _o, _p)
+    s2h_print_txt(mut ui, _SPACE, _l, _a, _y, _e, _r)
+    s2h_print_lf(mut ui)
+    s2h_print_lf(mut ui)
+    s2h_print_lf(mut ui)
+    s2h_print_lf(mut ui)
+    s2h_print_lf(mut ui)
+    s2h_slider_rgba(mut ui, 8u, mut bottom_color)
+    s2h_print_space(mut ui, 1.0)
+    s2h_print_txt(mut ui, _b, _o, _t, _t, _o, _m)
+    s2h_print_txt(mut ui, _SPACE, _l, _a, _y, _e, _r)
+    s2h_print_lf(mut ui)
+    s2h_print_lf(mut ui)
+    s2h_print_lf(mut ui)
+    s2h_print_lf(mut ui)
+    s2h_print_lf(mut ui)
+    s2h_slider_float(mut ui, 8u, mut border_sizes.x, 0.0, 20.0)
+    s2h_print_txt(mut ui, _SPACE, _t, _o, _p)
+    s2h_print_txt(mut ui, _SPACE, _b, _o, _r, _d, _e)
+    s2h_print_txt(mut ui, _r)
+    s2h_print_lf(mut ui)
+    s2h_slider_float(mut ui, 8u, mut border_sizes.y, 0.0, 20.0)
+    s2h_print_txt(mut ui, _SPACE, _b, _o, _t, _t, _o)
+    s2h_print_txt(mut ui, _m)
+    s2h_print_txt(mut ui, _SPACE, _b, _o, _r, _d, _e)
+    s2h_print_txt(mut ui, _r)
+
+    s2h_draw_rectangle_aa(mut ui, float2(250.0, 240.0), float2(350.0, 300.0), float4(1.0, 1.0, 1.0, 1.0), bottom_color, border_sizes.y)
+    s2h_draw_rectangle_aa(mut ui, float2(220.0, 210.0), float2(280.0, 280.0), float4(1.0, 1.0, 1.0, 1.0), top_color, border_sizes.x)
+
+    let line_width = ui.line_width
+    ui.line_width = 2.0
+    s2h_draw_circle(mut ui, float2(50.0, 120.0), 20.0, float4(1.0, 0.0, 0.0, 1.0))
+    ui.line_width = 4.0
+    s2h_draw_circle(mut ui, float2(50.0, 120.0), 30.0, float4(0.0, 1.0, 0.0, 1.0))
+    ui.line_width = 3.0
+    s2h_draw_crosshair(mut ui, float2(50.0, 120.0), 10.0, float4(0.0, 0.0, 1.0, 1.0))
+    ui.line_width = 12.0
+    let animated_offset = float2(sin(params.s2h_time.x), cos(params.s2h_time.x)) * 20.0
+    s2h_draw_line(mut ui, float2(50.0, 200.0) + animated_offset, float2(50.0, 200.0) - animated_offset, float4(0.0, 0.0, 1.0, 1.0))
+    ui.line_width = line_width
+
+    draw_eye(mut ui, float2(450.0, 240.0))
+    draw_eye(mut ui, float2(510.0, 240.0))
+    s2h_draw_srgb_ramp(mut ui, float2(520.0, 10.0))
+
+    for ii in 0 ..< 3:
+        let angle = (ii as float) * pi * 2.0 / 3.0
+        let mut half_space = float3(sin(angle), cos(angle), 0.0)
+        half_space.z -= dot(half_space, float3(450.0, 340.0, 1.0))
+        s2h_draw_half_space(mut ui, half_space, ui.mouse_input.xy, float4(..s2h_index_to_color((ii + 1) as uint), 1.0), 20.0, 40.0)
+
+    draw_blending_example(mut ui)
+    let background = float4(0.7, 0.4, 0.4, 1.0)
+    return {
+        color = mix(background, float4(..ui.dst_color.rgb, 1.0), ui.dst_color.a)
+    }

@@ -1,0 +1,104 @@
+// Translated to SGL from bgfx examples/common/nanovg/fs_nanovg_fill.sc.
+// The original carries no copyright line; bgfx: Copyright 2010-2026 Branimir Karadzic. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding material:
+    tex: texture_2d[float4]
+    sampler s_tex:
+        filter = .linear
+
+// bgfx's uniforms, one member per define
+binding params:
+    // gap: a binding cannot hold a mat3 (CHK-397), so three float4 columns stand in for u_scissorMat
+    scissor_mat: float4[3]
+    // gap: the same stand-in for u_paintMat
+    paint_mat: float4[3]
+    inner_col: float4
+    outer_col: float4
+    scissor_ext: float2
+    scissor_scale: float2
+    extent: float2
+    radius: float
+    unused: float
+    feather: float
+    stroke_mult: float
+    tex_type: float
+    // bgfx's u_type; `type` is a keyword
+    paint_type: float
+
+struct varyings:
+    @position position: hpos4
+    // bgfx's v_position
+    pos: float2
+    texcoord0: float2
+
+@pixel struct target:
+    color: float4
+
+const edge_aa = true
+
+fun sdroundrect(pt: float2, ext: float2, rad: float) -> float:
+    let ext2 = ext - float2(rad, rad)
+    let d = abs(pt) - ext2
+    return min(max(d.x, d.y), 0.0) + length(max(d, 0.0)) - rad
+
+fun scissor_matrix(){params} => mat3(params.scissor_mat[0].xyz, params.scissor_mat[1].xyz, params.scissor_mat[2].xyz)
+
+fun paint_matrix(){params} => mat3(params.paint_mat[0].xyz, params.paint_mat[1].xyz, params.paint_mat[2].xyz)
+
+// Scissoring
+fun scissor_mask(p: float2){params} -> float:
+    let mut sc = abs((scissor_matrix() * float3(..p, 1.0)).xy) - params.scissor_ext
+    sc = float2(0.5, 0.5) - sc * params.scissor_scale
+    return saturate(sc.x) * saturate(sc.y)
+
+// Stroke - from [0..1] to clipped pyramid, where the slope is 1px.
+fun stroke_mask(texcoord: float2){params} -> float:
+    if edge_aa:
+        return min(1.0, (1.0 - abs(texcoord.x * 2.0 - 1.0)) * params.stroke_mult) * min(1.0, texcoord.y)
+    return 1.0
+
+@pixel fun main(p: varyings){material, params} -> target:
+    // the original leaves result unset for any other type
+    let mut result = float4(0.0)
+    let scissor = scissor_mask(p.pos)
+    let stroke_alpha = stroke_mask(p.texcoord0)
+
+    if params.paint_type == 0.0:
+        // Gradient
+        // Calculate gradient color using box gradient
+        let pt = (paint_matrix() * float3(..p.pos, 1.0)).xy
+        let d = saturate((sdroundrect(pt, params.extent, params.radius) + params.feather * 0.5) / params.feather)
+        let mut color = mix(params.inner_col, params.outer_col, d)
+        // Combine alpha
+        color *= stroke_alpha * scissor
+        result = color
+    else if params.paint_type == 1.0:
+        // Image
+        // Calculate color from texture
+        let pt = (paint_matrix() * float3(..p.pos, 1.0)).xy / params.extent
+        let mut color = material.tex.sample(pt, material.s_tex)
+        if params.tex_type == 1.0:
+            color = float4(..(color.xyz * color.w), color.w)
+        if params.tex_type == 2.0:
+            color = color.xxxx
+        // Apply color tint and alpha
+        color *= params.inner_col
+        // Combine alpha
+        color *= stroke_alpha * scissor
+        result = color
+    else if params.paint_type == 2.0:
+        // Stencil fill
+        result = float4(1.0, 1.0, 1.0, 1.0)
+    else if params.paint_type == 3.0:
+        // Textured tris
+        let mut color = material.tex.sample(p.texcoord0.xy, material.s_tex)
+        if params.tex_type == 1.0:
+            color = float4(..(color.xyz * color.w), color.w)
+        if params.tex_type == 2.0:
+            color = color.xxxx
+        color *= scissor
+        result = color * params.inner_col
+
+    return {
+        color = result
+    }

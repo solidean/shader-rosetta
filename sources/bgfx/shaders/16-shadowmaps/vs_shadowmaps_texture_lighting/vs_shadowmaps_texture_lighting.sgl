@@ -1,0 +1,27 @@
+// Translated to SGL from bgfx examples/16-shadowmaps/vs_shadowmaps_texture_lighting.sc.
+// Copyright 2013-2014 Dario Manesku. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding view:
+    model_view: mat4
+    model_view_proj: mat4
+
+@vertex struct vertex_input:
+    position: pos3
+    normal: float4
+    texcoord0: float2
+
+// in the order of varying.def.sc
+struct varyings:
+    @position position: hpos4
+    texcoord0: float2
+    view: float3
+    normal: float3
+
+@vertex fun main(v: vertex_input){view} -> varyings:
+    let normal = v.normal * 2.0 - 1.0
+    return {
+        position = view.model_view_proj * v.position
+        texcoord0 = v.texcoord0
+        view = (view.model_view * v.position).xyz
+        normal = (view.model_view * float4(..normal.xyz, 0.0)).xyz
+    }

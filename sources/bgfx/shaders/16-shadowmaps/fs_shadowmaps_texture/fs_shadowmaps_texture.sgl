@@ -1,0 +1,19 @@
+// Translated to SGL from bgfx examples/16-shadowmaps/fs_shadowmaps_texture.sc.
+// Copyright 2013-2014 Dario Manesku. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding material:
+    tex_color: texture_2d[float4]
+    sampler s_tex_color:
+        filter = .linear
+
+struct varyings:
+    @position position: hpos4
+    texcoord0: float2
+
+@pixel struct target:
+    color: float4
+
+@pixel fun main(p: varyings){material} -> target:
+    return {
+        color = material.tex_color.sample(p.texcoord0, material.s_tex_color)
+    }

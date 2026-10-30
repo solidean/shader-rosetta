@@ -1,0 +1,280 @@
+// Translated to SGL from bgfx examples/16-shadowmaps/fs_shadowmaps_color_lighting_pcf_omni.sc, fs_shadowmaps_color_lighting.sh, fs_shadowmaps_color_lighting_main.sh, common.sh and common/shaderlib.sh.
+// Copyright 2013-2014 Dario Manesku. BSD-2-Clause: sources/bgfx/LICENSE.
+
+const pcf_lod_offset_num_samples = 16
+
+binding params:
+    // u_params0
+    ambient_pass: float
+    lighting_pass: float
+    params0_zw: float2
+    // u_params1; for PCF, param0 is the mode and param1 the noise amount
+    shadow_map_bias: float
+    shadow_map_offset: float
+    shadow_map_pcf_mode: float
+    shadow_map_noise_amount: float
+    // u_params2
+    depth_value_pow: float
+    shadow_map_show_coverage: float
+    shadow_map_texel_size: float
+    params2_w: float
+    color: float4
+    material_ka: float4
+    material_kd: float4
+    material_ks: float4
+    light_position: float4
+    light_ambient_power: float4
+    light_diffuse_power: float4
+    light_specular_power: float4
+    light_spot_direction_inner: float4
+    light_attenuation_spot_outer: float4
+    sm_sampling_params: float4
+    csm_far_distances: float4
+    tetra_normal_green: float4
+    tetra_normal_yellow: float4
+    tetra_normal_blue: float4
+    tetra_normal_red: float4
+
+binding shadow:
+    shadow_map0: texture_2d[float4]
+    sampler s_shadow_map:
+        filter = .linear
+
+// in the order of varying.def.sc
+struct varyings:
+    @position position: hpos4
+    texcoord1: float4
+    texcoord2: float4
+    texcoord3: float4
+    texcoord4: float4
+    view: float3
+    pos: float4
+    normal: float3
+
+@pixel struct target:
+    color: float4
+
+struct light:
+    l: float3
+    ld: float3
+    attn: float
+
+struct shading:
+    ambi: float3
+    diff: float3
+    spec: float3
+
+// gap: SGL's prelude has no radians, which HLSL, GLSL and WGSL each have
+fun radians(degrees: float) => degrees * (pi / 180.0)
+
+fun to_gamma(rgb: float3) => pow(abs(rgb), float3(1.0 / 2.2))
+
+fun unpack_rgba_to_float(rgba: float4) -> float:
+    let shift = float4(1.0 / (255.0 * 255.0 * 255.0), 1.0 / (255.0 * 255.0), 1.0 / 255.0, 1.0)
+    return dot(rgba, shift)
+
+fun attenuation(dist: float, attn: float3) -> float:
+    // constant, linear, quadratic
+    return 1.0 / (attn.x + attn.y * dist + attn.z * dist * dist)
+
+fun spot(ldotsd: float, inner_angle: float, outer_angle: float) -> float:
+    let inner = cos(radians(inner_angle))
+    let outer = cos(radians(min(outer_angle, inner_angle - 0.001)))
+    return clamp((ldotsd - inner) / (outer - inner), 0.0, 1.0)
+
+fun lit(ld: float3, n: float3, vd: float3, exp: float) -> float2:
+    // diffuse
+    let ndotl = dot(n, ld)
+
+    // specular
+    let r = 2.0 * ndotl * n - ld
+    let rdotv = dot(r, vd)
+    let spec = step(0.0, ndotl) * pow(max(0.0, rdotv), exp) * (2.0 + exp) / 8.0
+
+    return max(float2(ndotl, spec), 0.0)
+
+fun eval_light(v: float3, l: float4, spot_direction: float3, spot_inner: float, spot_outer: float, attn_params: float3) -> light:
+    // directional
+    let mut result: light = {
+        l = l.xyz
+        ld = -normalize(l.xyz)
+        attn = 1.0
+    }
+
+    // point or spot
+    if 0.0 != l.w:
+        result.l = l.xyz - v
+        result.ld = normalize(result.l)
+
+        let ldotsd = max(0.0, dot(-result.ld, normalize(spot_direction)))
+        // bgfx passes the outer angle as spot's inner one, and the inner as its outer
+        let falloff = spot(ldotsd, spot_outer, spot_inner)
+        result.attn = attenuation(length(result.l), attn_params) * mix(falloff, 1.0, step(90.0, spot_outer))
+
+    return result
+
+fun eval_shader(diff: float, spec: float){params} -> shading:
+    return {
+        ambi = params.light_ambient_power.xyz * params.light_ambient_power.w * params.material_ka.xyz
+        diff = params.light_diffuse_power.xyz * params.light_diffuse_power.w * params.material_kd.xyz * diff
+        spec = params.light_specular_power.xyz * params.light_specular_power.w * params.material_ks.xyz * spec
+    }
+
+fun texcoord_in_range(texcoord: float2) -> float:
+    let in_range = all(texcoord > float2(0.0)) and all(texcoord < float2(1.0))
+    return select(in_range, 1.0, 0.0)
+
+fun sample_vogel_disk(index: int, sample_count: int) -> float2:
+    // radians
+    let golden_angle = 2.39996323
+    let i = index as float
+    let r = sqrt((i + 0.5) / (sample_count as float))
+    let a = i * golden_angle
+    return float2(cos(a), sin(a)) * r
+
+fun sample_poisson(index: int) => sample_vogel_disk(index, 10)
+
+// rotates a 2D sample by a precomputed sin/cos pair, sincos = float2(sin(angle), cos(angle))
+fun rotate_sample(s: float2, sincos: float2) -> float2:
+    return float2(s.x * sincos.y - s.y * sincos.x, s.x * sincos.x + s.y * sincos.y)
+
+// interleaved gradient noise for per-pixel Poisson disk rotation,
+// from "Next Generation Post Processing in Call of Duty: AW" (Jimenez 2014)
+fun interleaved_gradient_noise(screen_pos: float2) -> float:
+    let magic = float3(0.06711056, 0.00583715, 52.9829189)
+    return fract(magic.z * fract(dot(screen_pos, magic.xy)))
+
+fun hard_shadow_lod(tex: texture_2d[float4], smp: sampler, lod: float, shadow_coord: float4, bias: float) -> float:
+    let tex_coord = shadow_coord.xy / shadow_coord.w
+
+    let outside = any(tex_coord > float2(1.0)) or any(tex_coord < float2(0.0))
+    if outside:
+        return 1.0
+
+    let receiver = (shadow_coord.z - bias) / shadow_coord.w
+    let occluder = unpack_rgba_to_float(tex.sample(tex_coord, smp, level = lod))
+
+    return step(receiver, occluder)
+
+// disk_rotation = float2(sin(angle), cos(angle)), or float2(0.0, 1.0) for none
+fun pcf_lod_offset(
+    tex: texture_2d[float4]
+    smp: sampler
+    lod: float
+    offset: float2
+    shadow_coord: float4
+    bias: float
+    texel_size: float2
+    disk_rotation: float2
+) -> float:
+    let mut result = 0.0
+
+    for i in 0 ..< pcf_lod_offset_num_samples:
+        let jittered_offset = rotate_sample(sample_poisson(i), disk_rotation) * offset
+        result += hard_shadow_lod(tex, smp, lod, shadow_coord + float4(..jittered_offset, 0.0, 0.0), bias)
+
+    return result / (pcf_lod_offset_num_samples as float)
+
+fun pcf_lod(
+    tex: texture_2d[float4]
+    smp: sampler
+    lod: float
+    filter_radius: float2
+    shadow_coord: float4
+    bias: float
+    pcf_params: float4
+    texel_size: float2
+    disk_rotation: float2
+) -> float:
+    let offset = filter_radius * pcf_params.zw * texel_size * shadow_coord.w
+
+    return pcf_lod_offset(tex, smp, lod, offset, shadow_coord, bias, texel_size, disk_rotation)
+
+fun pcf(tex: texture_2d[float4], smp: sampler, shadow_coord: float4, bias: float, pcf_params: float4, texel_size: float2, frag_coord: float2) -> float:
+    // per-pixel Poisson disk rotation from the fragment's coordinate
+    let noise_coord = frag_coord
+    let angle = interleaved_gradient_noise(noise_coord) * 6.283185
+    let disk_rotation = float2(sin(angle), cos(angle))
+    return pcf_lod(tex, smp, 0.0, float2(2.0, 2.0), shadow_coord, bias, pcf_params, texel_size, disk_rotation)
+
+fun compute_visibility(tex: texture_2d[float4], smp: sampler, shadow_coord: float4, bias: float, sampling_params: float4, texel_size: float2, frag_coord: float2) -> float:
+    let coord = shadow_coord
+    return pcf(tex, smp, coord, bias, sampling_params, texel_size, frag_coord)
+
+@pixel fun main(p: varyings){params, shadow} -> target:
+    let frag_coord = p.position.xy
+    let texel_size = float2(params.shadow_map_texel_size / 4.0)
+
+    let pos = p.pos.xyz
+    let face_selection = float4(
+        dot(params.tetra_normal_green.xyz, pos)
+        dot(params.tetra_normal_yellow.xyz, pos)
+        dot(params.tetra_normal_blue.xyz, pos)
+        dot(params.tetra_normal_red.xyz, pos)
+    )
+
+    let mut shadowcoord: float4
+    let mut color_coverage: float3
+    let face_max = max(max(face_selection.x, face_selection.y), max(face_selection.z, face_selection.w))
+    if face_selection.x == face_max:
+        shadowcoord = p.texcoord1
+
+        let coverage = texcoord_in_range(shadowcoord.xy / shadowcoord.w) * 0.3
+        color_coverage = float3(-coverage, coverage, -coverage)
+    else if face_selection.y == face_max:
+        shadowcoord = p.texcoord2
+
+        let coverage = texcoord_in_range(shadowcoord.xy / shadowcoord.w) * 0.3
+        color_coverage = float3(coverage, coverage, -coverage)
+    else if face_selection.z == face_max:
+        shadowcoord = p.texcoord3
+
+        let coverage = texcoord_in_range(shadowcoord.xy / shadowcoord.w) * 0.3
+        color_coverage = float3(-coverage, -coverage, coverage)
+    else:
+        shadowcoord = p.texcoord4
+
+        let coverage = texcoord_in_range(shadowcoord.xy / shadowcoord.w) * 0.3
+        color_coverage = float3(coverage, -coverage, -coverage)
+
+    let visibility = compute_visibility(
+        shadow.shadow_map0
+        shadow.s_shadow_map
+        shadowcoord
+        params.shadow_map_bias
+        params.sm_sampling_params
+        texel_size
+        frag_coord
+    )
+
+    let v = p.view
+    let vd = -normalize(p.view)
+    let n = p.normal
+    let lgt = eval_light(
+        v
+        params.light_position
+        params.light_spot_direction_inner.xyz
+        params.light_spot_direction_inner.w
+        params.light_attenuation_spot_outer.w
+        params.light_attenuation_spot_outer.xyz
+    )
+
+    let lc = lit(lgt.ld, n, vd, params.material_ks.w) * lgt.attn
+    let shader = eval_shader(lc.x, lc.y)
+
+    // fog
+    let fog_color = float3(0.0)
+    let fog_density = 0.0035
+    let log2_e = 1.442695
+    let z = length(v)
+    let fog_factor = clamp(1.0 / exp2(fog_density * fog_density * z * z * log2_e), 0.0, 1.0)
+
+    let color = params.color.xyz
+
+    let ambient = shader.ambi * color
+    let brdf = (shader.diff + shader.spec) * color * visibility
+
+    let final = to_gamma(abs(ambient + brdf)) + color_coverage * params.shadow_map_show_coverage
+    return {
+        color = float4(..mix(fog_color, final, fog_factor), 1.0)
+    }

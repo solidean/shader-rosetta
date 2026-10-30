@@ -1,0 +1,42 @@
+// Translated to SGL from bgfx examples/common/font/fs_font_distance_field_outline.sc.
+// Copyright 2010-2026 Branimir Karadzic, bgfx's line, since the original names none. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding material:
+    tex_color: texture_cube[float4]
+    sampler s_tex:
+        filter = .linear
+
+// bgfx's u_params, one member per define
+binding params:
+    unused: float
+    distance_multiplier: float
+    unused2: float
+    outline_width: float
+
+struct varyings:
+    @position position: hpos4
+    color0: float4
+    color1: float4
+    texcoord0: float4
+    texcoord1: float4
+
+@pixel struct target:
+    color: float4
+
+@pixel fun main(p: varyings){material, params} -> target:
+    let color = material.tex_color.sample(p.texcoord0.xyz, material.s_tex)
+
+    let index = (p.texcoord0.w * 4.0 + 0.5) as int
+    let rgba: float[4] = [color.z, color.y, color.x, color.w]
+    let distance = rgba[index]
+
+    let smoothing = 16.0 * length(fwidth(p.texcoord0.xyz)) / sqrt(2.0) * params.distance_multiplier
+
+    let outline_width = params.outline_width * smoothing
+    let outer_edge_center = 0.5 - outline_width
+    let alpha = smoothstep(outer_edge_center - smoothing, outer_edge_center + smoothing, distance)
+    let border = smoothstep(0.5 - smoothing, 0.5 + smoothing, distance)
+    let sdf_color = float4(..mix(p.color1.xyz, p.color0.xyz, border), alpha * p.color0.w)
+    return {
+        color = sdf_color
+    }

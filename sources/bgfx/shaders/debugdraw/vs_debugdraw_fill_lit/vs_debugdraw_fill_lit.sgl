@@ -1,0 +1,25 @@
+// Translated to SGL from bgfx examples/common/debugdraw/vs_debugdraw_fill_lit.sc.
+// Copyright 2011-2026 Branimir Karadzic. BSD-2-Clause: sources/bgfx/LICENSE.
+
+// u_model holds BGFX_CONFIG_MAX_BONES = 2 matrices
+binding view:
+    view: mat4
+    view_proj: mat4
+    model: mat4[2]
+
+@vertex struct vertex_input:
+    position: pos3
+    indices: uint4
+
+struct varyings:
+    @position position: hpos4
+    view: float3
+    world: float3
+
+@vertex fun main(v: vertex_input){view} -> varyings:
+    let world = view.model[v.indices.x as int] * float4(..v.position, 1.0)
+    return {
+        position = hpos4(..(view.view_proj * world))
+        view = (view.view * world).xyz
+        world = world.xyz
+    }

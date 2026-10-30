@@ -1,0 +1,20 @@
+// Translated to SGL from bgfx examples/14-shadowvolumes/fs_shadowvolume_svside.sc.
+// Copyright 2013-2014 Dario Manesku. BSD-2-Clause: sources/bgfx/LICENSE.
+
+struct varyings:
+    @position position: hpos4
+    k: float
+
+@pixel struct target:
+    color: float4
+
+@pixel fun main(p: varyings, @is_front_facing front_facing: bool) -> target:
+    let k = if front_facing => p.k else -p.k
+    return {
+        color = float4(
+            select(abs(k - 1.0) < 0.0001, 1.0, 0.0) / 255.0,
+            select(abs(k + 1.0) < 0.0001, 1.0, 0.0) / 255.0,
+            select(abs(k - 2.0) < 0.0001, 1.0, 0.0) / 255.0,
+            select(abs(k + 2.0) < 0.0001, 1.0, 0.0) / 255.0
+        )
+    }

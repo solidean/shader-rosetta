@@ -1,0 +1,369 @@
+// Translated to SGL from bgfx examples/54-s2h/cs_s2h_scatter.sc, with common/s2h/s2h_scatter.sh, s2h.sh, s2h_bgfx.sh, s2h.hlsl and s2h_scatter.hlsl.
+// The original carries no copyright line; bgfx: Copyright 2010-2026 Branimir Karadzic. BSD-2-Clause: sources/bgfx/LICENSE.
+// Shader To Human (S2H): Copyright (c) 2024-2025 Electronic Arts Inc. BSD-3-Clause: sources/bgfx/licenses/ShaderToHuman.txt.
+
+// Port of ShaderToHuman-bgfx/examples/Features/Scatter_example.hlsl.
+
+binding scatter:
+    scatter_color: out image_2d[.rgba8_unorm]
+
+binding params:
+    s2h_scatter_size: float4
+
+// ---- s2h.hlsl ----
+
+// You can define this to provide your own font (different size, visual or better lookup performance by using a texture)
+const g_mini_font: uint[192] = [
+    0x00306c6cu, 0x30003860u, 0x18600000u, 0x00000006u,
+    0x00786c6cu, 0x7cc66c60u, 0x30306630u, 0x0000000cu,
+    0x00786cfeu, 0xc0cc38c0u, 0x60183c30u, 0x00000018u,
+    0x0030006cu, 0x78187600u, 0x6018fffcu, 0x00fc0030u,
+    0x003000feu, 0x0c30dc00u, 0x60183c30u, 0x00000060u,
+    0x0000006cu, 0xf866cc00u, 0x30306630u, 0x300030c0u,
+    0x0030006cu, 0x30c67600u, 0x18600000u, 0x30003080u,
+    0x00000000u, 0x00000000u, 0x00000000u, 0x60000000u,
+    0x7c307878u, 0x1cfc38fcu, 0x78780000u, 0x18006078u,
+    0xc670ccccu, 0x3cc060ccu, 0xcccc3030u, 0x300030ccu,
+    0xce300c0cu, 0x6cf8c00cu, 0xcccc3030u, 0x60fc180cu,
+    0xde303838u, 0xcc0cf818u, 0x787c0000u, 0xc0000c18u,
+    0xf630600cu, 0xfe0ccc30u, 0xcc0c0000u, 0x60001830u,
+    0xe630ccccu, 0x0ccccc30u, 0xcc183030u, 0x30fc3000u,
+    0x7cfcfc78u, 0x1e787830u, 0x78703030u, 0x18006030u,
+    0x00000000u, 0x00000000u, 0x00000060u, 0x00000000u,
+    0x7c30fc3cu, 0xf8fefe3cu, 0xcc781ee6u, 0xf0c6c638u,
+    0xc6786666u, 0x6c626266u, 0xcc300c66u, 0x60eee66cu,
+    0xdecc66c0u, 0x666868c0u, 0xcc300c6cu, 0x60fef6c6u,
+    0xdecc7cc0u, 0x667878c0u, 0xfc300c78u, 0x60fedec6u,
+    0xdefc66c0u, 0x666868ceu, 0xcc30cc6cu, 0x62d6cec6u,
+    0xc0cc6666u, 0x6c626066u, 0xcc30cc66u, 0x66c6c66cu,
+    0x78ccfc3cu, 0xf8fef03eu, 0xcc7878e6u, 0xfec6c638u,
+    0x00000000u, 0x00000000u, 0x00000000u, 0x00000000u,
+    0xfc78fc78u, 0xfcccccc6u, 0xc6ccfe78u, 0xc0781000u,
+    0x66cc66ccu, 0xb4ccccc6u, 0xc6ccc660u, 0x60183800u,
+    0x66cc66e0u, 0x30ccccc6u, 0x6ccc8c60u, 0x30186c00u,
+    0x7ccc7c70u, 0x30ccccd6u, 0x38781860u, 0x1818c600u,
+    0x60dc6c1cu, 0x30ccccfeu, 0x38303260u, 0x0c180000u,
+    0x607866ccu, 0x30cc78eeu, 0x6c306660u, 0x06180000u,
+    0xf01ce678u, 0x78fc30c6u, 0xc678fe78u, 0x02780000u,
+    0x00000000u, 0x00000000u, 0x00000000u, 0x000000ffu,
+    0x3000e000u, 0x1c003800u, 0xe0300ce0u, 0x70000000u,
+    0x30006000u, 0x0c006c00u, 0x60000060u, 0x30000000u,
+    0x18786078u, 0x0c786076u, 0x6c700c66u, 0x30ccf878u,
+    0x000c7cccu, 0x7cccf0ccu, 0x76300c6cu, 0x30feccccu,
+    0x007c66c0u, 0xccfc60ccu, 0x66300c78u, 0x30feccccu,
+    0x00cc66ccu, 0xccc0607cu, 0x6630cc6cu, 0x30d6ccccu,
+    0x0076dc78u, 0x7678f00cu, 0xe678cce6u, 0x78c6cc78u,
+    0x00000000u, 0x000000f8u, 0x00007800u, 0x00000000u,
+    0x00000000u, 0x10000000u, 0x0000001cu, 0x18e076ffu,
+    0x00000000u, 0x30000000u, 0x00000030u, 0x1830dcffu,
+    0xdc76dc7cu, 0x7cccccc6u, 0xc6ccfc30u, 0x183000ffu,
+    0x66cc76c0u, 0x30ccccd6u, 0x6ccc98e0u, 0x001c00ffu,
+    0x66cc6678u, 0x30ccccfeu, 0x38cc3030u, 0x183000ffu,
+    0x7c7c600cu, 0x34cc78feu, 0x6c7c6430u, 0x183000ffu,
+    0x600cf0f8u, 0x1876306cu, 0xc60cfc1cu, 0x18e000ffu,
+    0xf01e0000u, 0x00000000u, 0x00f80000u, 0x000000ffu
+]
+
+// don't use directly
+// can be used for scatter and gather
+// @param ascii 32..127 are valid characters
+// @param pxPos int2(0..s2h_fontSize()-1, 0..s2h_fontSize-1)
+// @return true if there should be a pixel, false if not or outside the valid range
+fun s2h_font_lookup(ascii: uint, px_pos: int2) -> bool:
+    if (px_pos.x as uint) >= 8u or (px_pos.y as uint) >= 8u => return false
+
+    if ascii <= 32u or ascii > 127u => return false
+
+    // 0..16*6-1
+    let chr = ascii - 32u
+    // uint2(0..127, 0..47)
+    let chr_pos = uint2(chr % 16u, chr / 16u)
+    let pixel = uint2(chr_pos.x * 8u + (px_pos.x as uint), chr_pos.y * 8u + (px_pos.y as uint))
+    let dword_id = pixel.x / 32u + (pixel.y * 4u)
+    // 0..31
+    let bit_id = pixel.x & 0x1fu
+
+    // 0..ff
+    let dword_value = g_mini_font[dword_id]
+
+    return ((dword_value >> (31u - bit_id)) & 1u) != 0u
+
+const _A = 65u
+const _B = 66u
+const _C = 67u
+const _D = 68u
+const _E = 69u
+const _G = 71u
+const _H = 72u
+const _I = 73u
+const _L = 76u
+const _N = 78u
+const _R = 82u
+const _S = 83u
+const _T = 84u
+const _X = 88u
+const _Y = 89u
+const _Z = 90u
+const _a = _A + 32u
+const _c = _C + 32u
+const _d = _D + 32u
+const _e = _E + 32u
+const _g = _G + 32u
+const _h = _H + 32u
+const _i = _I + 32u
+const _l = _L + 32u
+const _n = _N + 32u
+const _r = _R + 32u
+const _t = _T + 32u
+const _UNDERSCORE = 95u // _
+const _MINUS = 45u // -
+const _PLUS = 43u // +
+const _ASTERISK = 42u // *
+const _PERIOD = 46u // .
+const _COLON = 58u // :
+const _COMMA = 44u // ,
+const _SPACE = 32u
+const _EQUAL = 61u // =
+const _0 = 48u
+const _2 = 50u
+
+// ---- s2h_scatter.hlsl ----
+
+// S2H_LOOP is bgfx's LOOP, a hint to keep a loop rolled; an SGL for stays a loop unless it is @unroll.
+
+struct context_scatter:
+    // RGBA, alpha 1 is assumed to be opaque
+    text_color: float4
+
+    // private, for internal use, might change --------
+
+    // in pixels
+    px_cursor: int2
+    // window left top, set by s2h_init()
+    px_left_x: int
+    // 1/2/3/4, call s2h_setScale()
+    scale: int
+
+// first call this
+fun s2h_init() -> context_scatter:
+    // white, opaque
+    let px_cursor = int2(0, 0)
+    return {
+        text_color = float4(1.0, 1.0, 1.0, 1.0)
+        px_cursor = px_cursor
+        px_left_x = px_cursor.x
+        scale = 1
+    }
+
+// set text cursor position, next printLF() will reset to this x position
+fun s2h_set_cursor(ui: mut context_scatter, in_px_left_top: float2):
+    ui.px_cursor = int2(in_px_left_top)
+    ui.px_left_x = in_px_left_top.x as int
+
+// @param scale 1:pixel perfect, 2:2x, 3:3x, ..
+fun s2h_set_scale(ui: mut context_scatter, scale: uint):
+    ui.scale = scale as int
+
+// don't use directly
+// on_gfx_for_all_scatter() is the shader's own
+fun s2h_print_character(ui: mut context_scatter, ascii: uint){scatter, params}:
+    for y in 0 ..< 8 * ui.scale:
+        for x in 0 ..< 8 * ui.scale:
+            if s2h_font_lookup(ascii, int2(x, y) / ui.scale):
+                on_gfx_for_all_scatter(ui.px_cursor + int2(x, y), ui.text_color)
+
+    ui.px_cursor.x += 8 * ui.scale
+
+// e.g. ui.s2h_printTxt('I', ' ', 'a', 'm');
+// @param a ascii character or 0
+fun s2h_print_txt(ui: mut context_scatter, a: uint){scatter, params}:
+    s2h_print_character(mut ui, a)
+
+// glsl has no default arguments to we implement multiple functions instead making porting easier
+fun s2h_print_txt(ui: mut context_scatter, a: uint, b: uint){scatter, params}:
+    s2h_print_txt(mut ui, a)
+    s2h_print_character(mut ui, b)
+
+fun s2h_print_txt(ui: mut context_scatter, a: uint, b: uint, c: uint){scatter, params}:
+    s2h_print_txt(mut ui, a, b)
+    s2h_print_character(mut ui, c)
+
+fun s2h_print_txt(ui: mut context_scatter, a: uint, b: uint, c: uint, d: uint){scatter, params}:
+    s2h_print_txt(mut ui, a, b, c)
+    s2h_print_character(mut ui, d)
+
+fun s2h_print_txt(ui: mut context_scatter, a: uint, b: uint, c: uint, d: uint, e: uint){scatter, params}:
+    s2h_print_txt(mut ui, a, b, c, d)
+    s2h_print_character(mut ui, e)
+
+fun s2h_print_txt(ui: mut context_scatter, a: uint, b: uint, c: uint, d: uint, e: uint, f: uint){scatter, params}:
+    s2h_print_txt(mut ui, a, b, c, d, e)
+    s2h_print_character(mut ui, f)
+
+// jump to next line
+fun s2h_print_lf(ui: mut context_scatter):
+    ui.px_cursor.x = ui.px_left_x
+    ui.px_cursor.y += 8 * ui.scale
+
+// @param value e.g. 123, 0
+fun s2h_print_int(ui: mut context_scatter, value: int){scatter, params}:
+    let mut value = value
+    // leading '-'
+    if value < 0:
+        s2h_print_character(mut ui, _MINUS)
+        value = -value
+    if value == 0:
+        s2h_print_character(mut ui, _0)
+        return
+    // move to right depending on number length
+    let mut tmp = value as uint
+    while tmp != 0u:
+        ui.px_cursor.x += 8 * ui.scale
+        tmp /= 10u
+    // digits
+    let backup = ui.px_cursor.x as float
+    tmp = value as uint
+    while tmp != 0u:
+        // 0..9
+        let digit = tmp % 10u
+        tmp /= 10u
+        // go backwards
+        ui.px_cursor.x -= 8 * ui.scale
+        s2h_print_character(mut ui, _0 + digit)
+        // counter +=8 from printCharacter ()
+        ui.px_cursor.x -= 8 * ui.scale
+    ui.px_cursor.x = backup as int
+
+// print hexadecimal e.g. "0000aa34"
+// @param value 32bit e.g. 0x123, 0xff00
+fun s2h_print_hex(ui: mut context_scatter, value: uint){scatter, params}:
+    // 8 nibbles, i from 7 down to 0
+    for k in 0 ..< 8:
+        let i = 7 - k
+        // 0..15
+        let nibble = (value >> ((i * 4) as uint)) & 0xfu
+        let start = if nibble < 10u => _0 else _A - 10u
+        s2h_print_character(mut ui, start + nibble)
+
+fun s2h_print_float(ui: mut context_scatter, value: float){scatter, params}:
+    s2h_print_int(mut ui, value as int)
+    let mut fractional = fract(abs(value))
+
+    s2h_print_character(mut ui, _PERIOD)
+
+    let digit_count = 3
+
+    // todo: unit tests, this is likely wrong at lower precision
+
+    // fractional digits
+    for _ in 0 ..< digit_count:
+        fractional *= 10.0
+        // 0..9
+        let digit = fractional as uint
+        fractional = fract(fractional)
+        s2h_print_character(mut ui, _0 + digit)
+
+// block in a 8x8 character
+fun s2h_print_block(ui: mut context_scatter, color: float4){scatter, params}:
+    for y in 0 ..< 8 * ui.scale:
+        for x in 0 ..< 8 * ui.scale:
+            let px_local = float2(x as float, y as float) / (ui.scale as float) - float2(3.5, 3.5)
+
+            let mask = saturate(4.0 - max(abs(px_local.x), abs(px_local.y)))
+
+            if mask > 0.0 => on_gfx_for_all_scatter(ui.px_cursor + int2(x, y), color)
+
+    ui.px_cursor.x += 8 * ui.scale
+
+// circle in a 8x8 character
+fun s2h_print_disc(ui: mut context_scatter, color: float4){scatter, params}:
+    for y in 0 ..< 8 * ui.scale:
+        for x in 0 ..< 8 * ui.scale:
+            let px_local = float2(x as float, y as float) / (ui.scale as float) - float2(3.5, 3.5)
+
+            let mask = saturate(4.0 - length(px_local))
+
+            if mask > 0.0 => on_gfx_for_all_scatter(ui.px_cursor + int2(x, y), color)
+
+    ui.px_cursor.x += 8 * ui.scale
+
+fun on_gfx_for_all_scatter(pixel: int2, color: float4){scatter, params}:
+    if pixel.x >= 0 and pixel.y >= 0 and pixel.x < (params.s2h_scatter_size.x as int) and pixel.y < (params.s2h_scatter_size.y as int):
+        let mut output_pixel = pixel
+        if params.s2h_scatter_size.z != 0.0:
+            output_pixel.y = (params.s2h_scatter_size.y as int) - 1 - output_pixel.y
+        scatter.scatter_color[output_pixel] = color
+
+fun print_disc_ex(ui: mut context_scatter, color: float4){scatter, params}:
+    s2h_print_disc(mut ui, color)
+    s2h_print_txt(mut ui, _SPACE)
+    s2h_print_int(mut ui, (color.r * 255.9) as int)
+    s2h_print_txt(mut ui, _COMMA)
+    s2h_print_int(mut ui, (color.g * 255.9) as int)
+    s2h_print_txt(mut ui, _COMMA)
+    s2h_print_int(mut ui, (color.b * 255.9) as int)
+
+fun show_color_content(ui: mut context_scatter){scatter, params}:
+    ui.px_left_x += 4
+    s2h_set_scale(mut ui, 2u)
+    for _ in 0 ..< 4:
+        s2h_print_lf(mut ui)
+
+    let a = float4(1.0, 0.0, 0.0, 1.0)
+    let b = float4(0.0, 1.0, 0.0, 1.0)
+    print_disc_ex(mut ui, a)
+    s2h_print_txt(mut ui, _EQUAL, _A)
+    s2h_print_lf(mut ui)
+    print_disc_ex(mut ui, b)
+    s2h_print_txt(mut ui, _EQUAL, _B)
+    s2h_print_lf(mut ui)
+    print_disc_ex(mut ui, a + b)
+    s2h_print_txt(mut ui, _EQUAL, _A, _PLUS, _B)
+    s2h_print_lf(mut ui)
+    print_disc_ex(mut ui, a * b)
+    s2h_print_txt(mut ui, _EQUAL, _A, _ASTERISK, _B)
+
+@compute(8, 8, 1) fun main(@thread_id id: int3){scatter, params}:
+    if id.x != 0 or id.y != 0 => return
+
+    let mut ui = s2h_init()
+    s2h_set_cursor(mut ui, float2(10.0, 10.0))
+    ui.text_color.rgb = float3(1.0, 1.0, 1.0)
+    s2h_set_scale(mut ui, 3u)
+    s2h_print_txt(mut ui, _S, _2, _H, _UNDERSCORE, _S, _c)
+    s2h_print_txt(mut ui, _a, _t, _t, _e, _r)
+    s2h_print_lf(mut ui)
+    s2h_print_lf(mut ui)
+
+    ui.text_color.rgb = float3(0.0, 0.0, 0.0)
+    s2h_set_scale(mut ui, 2u)
+    s2h_print_txt(mut ui, _S, _i, _n, _g, _l, _e)
+    s2h_print_txt(mut ui, _SPACE, _T, _h, _r, _e, _a)
+    s2h_print_txt(mut ui, _d)
+    s2h_print_lf(mut ui)
+
+    ui.text_color.rgb = float3(1.0, 0.0, 0.0)
+    s2h_print_txt(mut ui, _R)
+    ui.text_color.rgb = float3(0.0, 1.0, 0.0)
+    s2h_print_txt(mut ui, _G)
+    ui.text_color.rgb = float3(0.0, 0.0, 1.0)
+    s2h_print_txt(mut ui, _B, _SPACE)
+    ui.text_color.rgb = float3(0.0, 0.0, 0.0)
+    s2h_print_txt(mut ui, _X, _Y, _Z, _COLON)
+    s2h_print_lf(mut ui)
+    s2h_print_int(mut ui, 12345)
+    s2h_print_lf(mut ui)
+    s2h_print_int(mut ui, -12345)
+    s2h_print_lf(mut ui)
+    s2h_print_hex(mut ui, 0x1297abu)
+    s2h_print_lf(mut ui)
+    s2h_print_lf(mut ui)
+    s2h_print_float(mut ui, -12.34)
+    s2h_print_txt(mut ui, _COMMA)
+    s2h_print_float(mut ui, 0.34)
+    s2h_print_lf(mut ui)
+    s2h_print_block(mut ui, float4(1.0, 0.7, 0.3, 1.0))
+    s2h_print_block(mut ui, float4(1.0, 0.0, 0.0, 1.0))
+    s2h_print_disc(mut ui, float4(0.0, 1.0, 0.0, 1.0))
+    s2h_print_disc(mut ui, float4(1.0, 1.0, 0.0, 1.0))
+    show_color_content(mut ui)

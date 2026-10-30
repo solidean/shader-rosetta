@@ -1,0 +1,19 @@
+// Translated to SGL from bgfx examples/16-shadowmaps/vs_shadowmaps_packdepth.sc.
+// Copyright 2013-2014 Dario Manesku. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding view:
+    model_view_proj: mat4
+
+@vertex struct vertex_input:
+    position: pos3
+
+struct varyings:
+    @position position: hpos4
+    pos: float4
+
+@vertex fun main(v: vertex_input){view} -> varyings:
+    let position = view.model_view_proj * v.position
+    return {
+        position = position
+        pos = position.xyzw
+    }

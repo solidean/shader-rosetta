@@ -1,0 +1,29 @@
+// Translated to SGL from bgfx examples/27-terrain/vs_terrain_height_texture.sc.
+// Copyright 2015 Andrew Mac. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding view:
+    model_view_proj: mat4
+
+binding material:
+    height_texture: texture_2d[float4]
+    sampler s_height:
+        filter = .linear
+
+@vertex struct vertex_input:
+    position: float3
+    texcoord0: float2
+
+struct varyings:
+    @position position: hpos4
+    // bgfx's v_position
+    pos: float3
+    texcoord0: float2
+
+@vertex fun main(v: vertex_input){view, material} -> varyings:
+    let mut pos = v.position.xyz
+    pos.y = material.height_texture.sample(v.texcoord0, material.s_height, level = 0.0).x * 255.0
+    return {
+        position = view.model_view_proj * pos3(..pos.xyz)
+        pos = pos
+        texcoord0 = v.texcoord0
+    }

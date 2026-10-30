@@ -31,6 +31,10 @@
             "file": "vs_font_distance_field_outline_image.spv",
             "by": "bgfx shaderc b7d0751baa",
             "args": "--type vertex --platform linux -p spirv -i ../../../src"
+        },
+        "sgl": {
+            "status": "translated",
+            "file": "vs_font_distance_field_outline_image.sgl"
         }
     }
 }

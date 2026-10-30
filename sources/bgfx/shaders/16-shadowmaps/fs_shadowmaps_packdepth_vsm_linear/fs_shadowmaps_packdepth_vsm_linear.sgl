@@ -1,0 +1,23 @@
+// Translated to SGL from bgfx examples/16-shadowmaps/fs_shadowmaps_packdepth_vsm_linear.sc and common/shaderlib.sh.
+// Copyright 2013-2014 Dario Manesku. BSD-2-Clause: sources/bgfx/LICENSE.
+
+struct varyings:
+    @position position: hpos4
+    depth: float
+
+@pixel struct target:
+    color: float4
+
+fun pack_half_float(value: float) -> float2:
+    let shift = float2(255.0, 1.0)
+    let mask = float2(0.0, 1.0 / 255.0)
+    let mut comp = fract(value * shift)
+    comp -= comp.xx * mask
+    return comp
+
+@pixel fun main(p: varyings) -> target:
+    let depth = p.depth
+    let depth_sq = depth * depth
+    return {
+        color = float4(..pack_half_float(depth), ..pack_half_float(depth_sq))
+    }

@@ -1,0 +1,37 @@
+// Translated to SGL from bgfx examples/common/font/fs_font_distance_field_subpixel.sc.
+// Copyright 2010-2026 Branimir Karadzic, bgfx's line, since the original names none. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding material:
+    tex_color: texture_cube[float4]
+    sampler s_tex:
+        filter = .linear
+
+struct varyings:
+    @position position: hpos4
+    color0: float4
+    texcoord0: float4
+
+@pixel struct target:
+    color: float4
+
+@pixel fun main(p: varyings){material} -> target:
+    let index = (p.texcoord0.w * 4.0 + 0.5) as int
+    let dx3 = ddx(p.texcoord0.xyz)
+    let dy3 = ddy(p.texcoord0.xyz)
+    let decal = 0.166667 * dx3
+    let sample_left = p.texcoord0.xyz - decal
+    let sample_right = p.texcoord0.xyz + decal
+
+    let left_dist = material.tex_color.sample(sample_left, material.s_tex).zyxw[index]
+    let right_dist = material.tex_color.sample(sample_right, material.s_tex).zyxw[index]
+
+    let dist = 0.5 * (left_dist + right_dist)
+
+    let dx = length(dx3)
+    let dy = length(dy3)
+    let w = 16.0 * 0.5 * (dx + dy)
+
+    let sub_color = smoothstep(float3(0.5 - w), float3(0.5 + w), float3(left_dist, dist, right_dist))
+    return {
+        color = float4(..(sub_color * p.color0.w), dist * p.color0.w)
+    }

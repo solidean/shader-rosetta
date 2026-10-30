@@ -1,0 +1,16 @@
+// Translated to SGL from bgfx examples/14-shadowvolumes/fs_shadowvolume_svbackcolor.sc.
+// Copyright 2013-2014 Dario Manesku. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding params:
+    color: float4
+
+struct varyings:
+    @position position: hpos4
+
+@pixel struct target:
+    color: float4
+
+@pixel fun main(p: varyings){params} -> target:
+    return {
+        color = float4(..params.color.xyz, 0.98)
+    }

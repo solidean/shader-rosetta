@@ -1,0 +1,126 @@
+// Translated to SGL from bgfx examples/51-gpufont/vs_slug.sc.
+// The original carries no bgfx copyright line; bgfx: Copyright 2010-2026 Branimir Karadzic. BSD-2-Clause: sources/bgfx/LICENSE.
+// Slug reference shaders: Copyright 2017, by Eric Lengyel. MIT.
+
+// ===================================================
+// Reference vertex shader for the Slug algorithm.
+// This code is made available under the MIT License.
+// Copyright 2017, by Eric Lengyel.
+// ===================================================
+
+binding view:
+    view_rect: float4
+    model_view_proj: mat4
+
+binding params:
+    params: float4
+
+// The per-vertex input data consists of 5 attributes all having 4 floating-point components:
+//
+// 0 - pos
+// 1 - tex
+// 2 - jac
+// 3 - bnd
+// 4 - col
+
+// pos.xy = object-space vertex coordinates.
+// pos.zw = object-space normal vector.
+
+// tex.xy = em-space sample coordinates.
+
+// tex.z = location of glyph data in band texture (interpreted as integer):
+
+// | 31                         24 | 23                         16 | 15                          8 | 7                           0 |
+// +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+// |           y coordinate of glyph data in band texture          |           x coordinate of glyph data in band texture          |
+// +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+
+// tex.w = max band indexes and flags (interpreted as integer):
+
+// | 31                         24 | 23                         16 | 15                          8 | 7                           0 |
+// +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+// | 0   0   0 | E | 0   0   0   0 |           band max y          | 0   0   0   0   0   0   0   0 |           band max x          |
+// +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+
+// jac = inverse Jacobian matrix entries (00, 01, 10, 11).
+// bnd = (band scale x, band scale y, band offset x, band offset y).
+// col = vertex color (red, green, blue, alpha).
+
+@vertex struct vertex_input:
+    position: float4
+    texcoord0: float4
+    texcoord1: float4
+
+struct varyings:
+    @position position: hpos4
+    texcoord0: float2
+    @interpolate(.flat) banding: float4
+    @interpolate(.flat) glyph: float4
+
+// bgfx's out parameters of slugUnpack, returned together
+struct unpacked:
+    banding: float4
+    glyph: float4
+
+fun slug_unpack(bnd: float4, bits: float2) -> unpacked:
+    let g = bits.bits
+    return {
+        glyph = float4(
+            (g.x & 0xffffu) as float
+            (g.x >> 16u) as float
+            (g.y & 0xffffu) as float
+            (g.y >> 16u) as float
+        )
+        banding = bnd
+    }
+
+// bgfx's slugDilate, returning its out parameter beside the em-space sample position
+struct dilated:
+    texcoord: float2
+    pos: float2
+
+fun slug_dilate(pos: float2, normal: float2, tex: float2, jac: float4, dim: float2){view} -> dilated:
+    let n = normalize(normal)
+
+    let p_clip = view.model_view_proj * float4(..pos, 0.0, 1.0)
+    let n_clip = view.model_view_proj * float4(..n, 0.0, 0.0)
+
+    let s = p_clip.w
+    let t = n_clip.w
+
+    let u = (s * n_clip.x - t * p_clip.x) * dim.x
+    let v = (s * n_clip.y - t * p_clip.y) * dim.y
+
+    let s2 = s * s
+    let st = s * t
+    let uv = u * u + v * v
+    let d = normal * (s2 * (st + sqrt(uv)) / (uv - st * st))
+
+    return {
+        texcoord = float2(tex.x + dot(d, jac.xy), tex.y + dot(d, jac.zw))
+        pos = pos + d
+    }
+
+@vertex fun main(v: vertex_input){view, params} -> varyings:
+    let jacobian = float4(params.params.w, 0.0, 0.0, params.params.w)
+
+    // Apply dynamic dilation to vertex position. Returns new em-space sample position.
+
+    let pos = v.position.xy
+    let normal = v.position.zw
+    let uv = v.texcoord0.xy
+    let bits = v.texcoord0.zw
+
+    let dilated = slug_dilate(pos, normal, uv, jacobian, view.view_rect.zw)
+
+    // Unpack or pass through remaining vertex data.
+
+    let unpacked = slug_unpack(v.texcoord1, bits)
+
+    return {
+        // Apply MVP matrix to dilated vertex position.
+        position = view.model_view_proj * pos3(..dilated.pos, 0.0)
+        texcoord0 = dilated.texcoord
+        banding = unpacked.banding
+        glyph = unpacked.glyph
+    }

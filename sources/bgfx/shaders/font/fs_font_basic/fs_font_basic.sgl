@@ -1,0 +1,23 @@
+// Translated to SGL from bgfx examples/common/font/fs_font_basic.sc.
+// Copyright 2010-2026 Branimir Karadzic, bgfx's line, since the original names none. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding material:
+    tex_color: texture_cube[float4]
+    sampler s_tex:
+        filter = .linear
+
+struct varyings:
+    @position position: hpos4
+    color0: float4
+    texcoord0: float4
+
+@pixel struct target:
+    color: float4
+
+@pixel fun main(p: varyings){material} -> target:
+    let color = material.tex_color.sample(p.texcoord0.xyz, material.s_tex)
+    let index = (p.texcoord0.w * 4.0 + 0.5) as int
+    let alpha = if index < 1 => color.z else if index < 2 => color.y else if index < 3 => color.x else color.w
+    return {
+        color = float4(..p.color0.xyz, p.color0.w * alpha)
+    }

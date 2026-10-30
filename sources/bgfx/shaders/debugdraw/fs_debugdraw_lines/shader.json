@@ -31,6 +31,10 @@
             "file": "fs_debugdraw_lines.spv",
             "by": "bgfx shaderc b7d0751baa",
             "args": "--type fragment --platform linux -p spirv -i ../../../src"
+        },
+        "sgl": {
+            "status": "translated",
+            "file": "fs_debugdraw_lines.sgl"
         }
     }
 }

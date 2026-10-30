@@ -1,0 +1,113 @@
+// Translated to SGL from bgfx examples/46-fsr/cs_fsr_bilinear_16.sc, cs_fsr.h, ffx_a.h and ffx_fsr1.h.
+// Copyright 2021 Richard Schubert. BSD-2-Clause: sources/bgfx/LICENSE.
+// ffx_a.h and ffx_fsr1.h, AMD FidelityFX FSR 1: Copyright (c) 2021 Advanced Micro Devices, Inc. MIT: sources/bgfx/upstream/examples/46-fsr/ffx_fsr1.h.
+
+// SAMPLE_HALF_MATH, which every target but GLSL compiles: the bilinear path holds no 16-bit math, and writes an rgba16f image
+
+// bgfx's u_params[3], one member per define of cs_fsr.h
+binding params:
+    viewport_size_rcas_attenuation: float4
+    src_size: float4
+    dst_size: float4
+
+binding fsr:
+    input_texture: texture_2d[float4]
+    output_texture: out image_2d[.rgba16_float]
+    sampler s_input:
+        filter = .linear
+
+// ffx_a.h
+fun rcp(x: float) => 1.0 / x
+
+fun bfe(src: uint, off: uint, bits: uint) -> uint:
+    let mask = (1u << bits) - 1u
+    return (src >> off) & mask
+
+fun bfi_m(src: uint, ins: uint, bits: uint) -> uint:
+    let mask = (1u << bits) - 1u
+    return (ins & mask) | (src & (~mask))
+
+// Remap the lane index of a 64-wide workgroup to an 8x8 tile, in a pixel-shader-like swizzle.
+fun rmp8x8(a: uint) => uint2(bfe(a, 1u, 3u), bfi_m(bfe(a, 3u, 3u), a, 1u))
+
+// ffx_fsr1.h's FsrEasuCon outputs, one member per `out` parameter
+struct easu_constants:
+    con0: uint4
+    con1: uint4
+    con2: uint4
+    con3: uint4
+
+// Call to setup required constant values (works on CPU or GPU).
+fun fsr_easu_con(
+    // This the rendered image resolution being upscaled
+    input_viewport_in_pixels_x: float
+    input_viewport_in_pixels_y: float
+    // This is the resolution of the resource containing the input image (useful for dynamic resolution)
+    input_size_in_pixels_x: float
+    input_size_in_pixels_y: float
+    // This is the display resolution which the input image gets upscaled to
+    output_size_in_pixels_x: float
+    output_size_in_pixels_y: float
+) -> easu_constants:
+    return {
+        // Output integer position to a pixel position in viewport.
+        con0 = uint4(
+            (input_viewport_in_pixels_x * rcp(output_size_in_pixels_x)).bits
+            (input_viewport_in_pixels_y * rcp(output_size_in_pixels_y)).bits
+            (0.5 * input_viewport_in_pixels_x * rcp(output_size_in_pixels_x) - 0.5).bits
+            (0.5 * input_viewport_in_pixels_y * rcp(output_size_in_pixels_y) - 0.5).bits
+        )
+        // Viewport pixel position to normalized image space.
+        // This is used to get upper-left of 'F' tap.
+        // Then the centers of gather4, first offset from upper-left of 'F'.
+        con1 = uint4(
+            rcp(input_size_in_pixels_x).bits
+            rcp(input_size_in_pixels_y).bits
+            (1.0 * rcp(input_size_in_pixels_x)).bits
+            (-1.0 * rcp(input_size_in_pixels_y)).bits
+        )
+        // These are from (0) instead of 'F'.
+        con2 = uint4(
+            (-1.0 * rcp(input_size_in_pixels_x)).bits
+            (2.0 * rcp(input_size_in_pixels_y)).bits
+            (1.0 * rcp(input_size_in_pixels_x)).bits
+            (2.0 * rcp(input_size_in_pixels_y)).bits
+        )
+        con3 = uint4(
+            (0.0 * rcp(input_size_in_pixels_x)).bits
+            (4.0 * rcp(input_size_in_pixels_y)).bits
+            0u
+            0u
+        )
+    }
+
+fun curr_filter(pos: uint2, con: easu_constants, sample_flags: uint4){fsr}:
+    let pp = ((pos as float2) * float2.from_bits(con.con0.xy) + float2.from_bits(con.con0.zw)) * float2.from_bits(con.con1.xy)
+        + float2(0.5, -0.5) * float2.from_bits(con.con1.zw)
+    fsr.output_texture[pos as int2] = fsr.input_texture.sample(pp, fsr.s_input, level = 0.0) as texel[.rgba16_float]
+
+@compute(64, 1, 1) fun main(@local_thread_id local_id: int3, @workgroup_id group_id: int3){params, fsr}:
+    // We compute these constants on GPU because bgfx does not support uniform type uint.
+    let con = fsr_easu_con(
+        // Viewport size (top left aligned) in the input image which is to be scaled.
+        params.viewport_size_rcas_attenuation.x
+        params.viewport_size_rcas_attenuation.y
+        // The size of the input image.
+        params.src_size.x
+        params.src_size.y
+        // The output resolution.
+        params.dst_size.x
+        params.dst_size.y
+    )
+    // no HDR output
+    let sample_flags = uint4(0u)
+
+    // Do remapping of local xy in workgroup for a more PS-like swizzle pattern.
+    let mut gxy = rmp8x8(local_id.x as uint) + uint2((group_id.x as uint) << 4u, (group_id.y as uint) << 4u)
+    curr_filter(gxy, con, sample_flags)
+    gxy.x += 8u
+    curr_filter(gxy, con, sample_flags)
+    gxy.y += 8u
+    curr_filter(gxy, con, sample_flags)
+    gxy.x -= 8u
+    curr_filter(gxy, con, sample_flags)

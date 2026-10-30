@@ -1,0 +1,47 @@
+// Translated to SGL from bgfx examples/54-s2h/fs_s2h_debug_zoom.sc, with common/s2h/s2h_bgfx.sh.
+// The original carries no copyright line; bgfx: Copyright 2010-2026 Branimir Karadzic. BSD-2-Clause: sources/bgfx/LICENSE.
+// Shader To Human (S2H): Copyright (c) 2024-2025 Electronic Arts Inc. BSD-3-Clause: sources/bgfx/licenses/ShaderToHuman.txt.
+
+binding view:
+    view_rect: float4
+
+binding params:
+    s2h_mouse: float4
+
+binding material:
+    quad_post_color: texture_2d[float4]
+    sampler s_quad_post_color:
+        filter = .linear
+
+struct varyings:
+    @position position: hpos4
+    color0: float4
+    texcoord0: float2
+
+@pixel struct target:
+    color: float4
+
+// ---- s2h_bgfx.sh ----
+
+// S2H uses a top-left pixel origin; bgfx_ndc.z is the OpenGL origin sign.
+// The original's GLSL arm flips y by it; no SGL target has GL's origin, so this is its other arm.
+fun s2h_get_pixel_coord(fragment_coord: float2) -> float2:
+    return fragment_coord
+
+@pixel fun main(p: varyings){view, params, material} -> target:
+    let pixel = s2h_get_pixel_coord(p.position.xy)
+    let resolution = view.view_rect.zw
+    let mouse = params.s2h_mouse.xy
+    let mut color = material.quad_post_color.sample(p.texcoord0, material.s_quad_post_color).rgb
+    let panel_local = pixel - mouse - float2(24.0, 24.0)
+    if panel_local.x >= 0.0 and panel_local.y >= 0.0 and panel_local.x < 160.0 and panel_local.y < 160.0:
+        let source_pixel = floor(mouse - float2(8.0, 8.0) + panel_local / 10.0)
+        // one texel at its center, after a branch on the pixel: read at level 0
+        color = material.quad_post_color.sample((source_pixel + 0.5) / resolution, material.s_quad_post_color, level = 0.0).rgb
+        let cell = fract(panel_local / 10.0)
+        if cell.x < 0.08 or cell.y < 0.08 => color = float3(0.0, 0.0, 0.0)
+    let crosshair = 1.0 - smoothstep(0.0, 1.0, min(abs(pixel.x - mouse.x), abs(pixel.y - mouse.y)))
+    color = mix(color, float3(1.0, 1.0, 1.0), crosshair)
+    return {
+        color = float4(..color, 1.0)
+    }

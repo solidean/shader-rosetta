@@ -1,0 +1,31 @@
+// Translated to SGL from bgfx examples/common/nanovg/vs_nanovg_fill.sc.
+// The original carries no copyright line; bgfx: Copyright 2010-2026 Branimir Karadzic. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding params:
+    view_size: float4
+
+@vertex struct vertex_input:
+    position: float2
+    texcoord0: float2
+
+struct varyings:
+    @position position: hpos4
+    // bgfx's v_position
+    pos: float2
+    texcoord0: float2
+
+// NEED_HALF_TEXEL holds below HLSL 4.0 alone, which no SGL target is, so u_halfTexel is the zero constant
+const half_texel = float4(0.0)
+
+@vertex fun main(v: vertex_input){params} -> varyings:
+    let position = v.position
+    return {
+        position = hpos4(
+            2.0 * position.x / params.view_size.x - 1.0
+            1.0 - 2.0 * position.y / params.view_size.y
+            0.0
+            1.0
+        )
+        pos = position
+        texcoord0 = v.texcoord0 + half_texel.xy
+    }

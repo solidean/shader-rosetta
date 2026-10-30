@@ -1,0 +1,24 @@
+// Translated to SGL from bgfx examples/54-s2h/fs_s2h_quadpost_scene.sc.
+// The original carries no copyright line; bgfx: Copyright 2010-2026 Branimir Karadzic. BSD-2-Clause: sources/bgfx/LICENSE.
+
+// The original includes s2h_bgfx.sh and uses nothing of it.
+
+binding params:
+    s2h_time: float4
+
+struct varyings:
+    @position position: hpos4
+    color0: float4
+    texcoord0: float2
+
+@pixel struct target:
+    color: float4
+
+@pixel fun main(p: varyings){params} -> target:
+    let uv = p.texcoord0
+    let grid = step(0.96, fract(uv.x * 10.0)) + step(0.96, fract(uv.y * 10.0))
+    let wave = 0.5 + 0.5 * sin(params.s2h_time.x + uv.x * 8.0 + uv.y * 5.0)
+    let color = mix(float3(0.06, 0.1, 0.25), float3(0.9, 0.25, 0.1), wave)
+    return {
+        color = float4(..mix(color, float3(1.0, 1.0, 1.0), grid), 1.0)
+    }

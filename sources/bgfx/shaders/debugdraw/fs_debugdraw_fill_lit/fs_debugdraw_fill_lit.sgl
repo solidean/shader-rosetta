@@ -1,0 +1,34 @@
+// Translated to SGL from bgfx examples/common/debugdraw/fs_debugdraw_fill_lit.sc.
+// Copyright 2011-2026 Branimir Karadzic. BSD-2-Clause: sources/bgfx/LICENSE.
+
+// bgfx's u_params[4], one member per define
+binding params:
+    light_dir: vec3
+    shininess: float
+    sky_color: float3
+    unused0: float
+    ground_color: float3
+    unused1: float
+    mat_color: float4
+
+struct varyings:
+    @position position: hpos4
+    view: float3
+    world: float3
+
+@pixel struct target:
+    color: float4
+
+@pixel fun main(p: varyings){params} -> target:
+    let normal = normalize(cross(vec3(..ddx(p.world)), vec3(..ddy(p.world))))
+    let view_dir = -normalize(p.view)
+
+    let ndotl = dot(normal, params.light_dir)
+    let diffuse = mix(params.ground_color, params.sky_color, ndotl * 0.5 + 0.5) * params.mat_color.xyz
+
+    // the original's specular term sits in an `#if 0` arm; the live arm has none
+    let spec = 0.0
+
+    return {
+        color = float4(..(diffuse + float3(spec)), params.mat_color.w)
+    }

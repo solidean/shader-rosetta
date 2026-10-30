@@ -1,0 +1,39 @@
+// Translated to SGL from bgfx examples/40-svt/fs_vt_mip.sc and virtualtexture.sh.
+// Copyright 2011-2026 Branimir Karadzic. BSD-2-Clause: sources/bgfx/LICENSE.
+
+// Reference(s):
+// - Based on Virtual Texture Demo by Brad Blanchard
+//   http://web.archive.org/web/20190103162638/http://linedef.com/virtual-texture-demo.html
+
+// bgfx's u_vt_settings_1 and u_vt_settings_2, one member per define
+binding settings:
+    virtual_texture_size: float
+    atlas_scale: float
+    border_scale: float
+    border_offset: float
+    mip_bias: float
+    page_table_size: float
+
+struct varyings:
+    @position position: hpos4
+    texcoord0: float2
+
+@pixel struct target:
+    color: float4
+
+// This function estimates mipmap levels
+fun mip_level(uv: float2, size: float) -> float:
+    let dx = ddx(uv * size)
+    let dy = ddy(uv * size)
+    let d = max(dot(dx, dx), dot(dy, dy))
+
+    return max(0.5 * log2(d), 0.0)
+
+@pixel fun main(p: varyings){settings} -> target:
+    let mip_count = log2(settings.page_table_size)
+    let mut mip = floor(mip_level(p.texcoord0.xy, settings.virtual_texture_size) - settings.mip_bias)
+    mip = clamp(mip, 0.0, mip_count)
+    let offset = floor(p.texcoord0.xy * settings.page_table_size)
+    return {
+        color = float4(..(floor(float3(..(offset / exp2(mip)), mip)) / 255.0), 1.0)
+    }

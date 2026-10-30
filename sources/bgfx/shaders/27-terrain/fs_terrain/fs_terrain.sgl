@@ -1,0 +1,16 @@
+// Translated to SGL from bgfx examples/27-terrain/fs_terrain.sc.
+// Copyright 2015 Andrew Mac. BSD-2-Clause: sources/bgfx/LICENSE.
+
+struct varyings:
+    @position position: hpos4
+    // bgfx's v_position
+    pos: float3
+    texcoord0: float2
+
+@pixel struct target:
+    color: float4
+
+@pixel fun main(p: varyings) -> target:
+    return {
+        color = float4(p.texcoord0.x, p.texcoord0.y, p.pos.y / 50.0, 1.0)
+    }

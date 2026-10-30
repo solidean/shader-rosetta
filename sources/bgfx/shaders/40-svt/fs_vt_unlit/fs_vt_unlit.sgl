@@ -1,0 +1,88 @@
+// Translated to SGL from bgfx examples/40-svt/fs_vt_unlit.sc and virtualtexture.sh.
+// Copyright 2011-2026 Branimir Karadzic. BSD-2-Clause: sources/bgfx/LICENSE.
+
+// Reference(s):
+// - Based on Virtual Texture Demo by Brad Blanchard
+//   http://web.archive.org/web/20190103162638/http://linedef.com/virtual-texture-demo.html
+
+binding vt:
+    page_table: texture_2d[float4]
+    texture_atlas: texture_2d[float4]
+    // a page-table entry is read whole, never filtered
+    sampler s_page_table:
+        filter = .nearest
+    sampler s_atlas:
+        filter = .linear
+
+// bgfx's u_vt_settings_1 and u_vt_settings_2, one member per define
+binding settings:
+    virtual_texture_size: float
+    atlas_scale: float
+    border_scale: float
+    border_offset: float
+    mip_bias: float
+    page_table_size: float
+
+struct varyings:
+    @position position: hpos4
+    texcoord0: float2
+
+@pixel struct target:
+    color: float4
+
+// This function estimates mipmap levels
+fun mip_level(uv: float2, size: float) -> float:
+    let dx = ddx(uv * size)
+    let dy = ddy(uv * size)
+    let d = max(dot(dx, dx), dot(dy, dy))
+
+    return max(0.5 * log2(d), 0.0)
+
+// This function samples the page table and returns the page's
+// position and mip level.
+fun sample_table(uv: float2, mip: float){vt, settings} -> float3:
+    let offset = fract(uv * settings.page_table_size) / settings.page_table_size
+    return vt.page_table.sample(uv - offset, vt.s_page_table, level = mip).xyz
+
+// This functions samples from the texture atlas and returns the final color
+fun sample_atlas(page: float3, uv: float2){vt, settings} -> float4:
+    let mipsize = exp2(floor(page.z * 255.0 + 0.5))
+
+    let mut uv = fract(uv * settings.page_table_size / mipsize)
+
+    uv *= settings.border_scale
+    uv += settings.border_offset
+
+    let offset = floor(page.xy * 255.0 + 0.5)
+
+    return vt.texture_atlas.sample((offset + uv) * settings.atlas_scale, vt.s_atlas)
+
+// Ugly brute force trilinear, look up twice and mix
+fun virtual_texture_trilinear(uv: float2){vt, settings} -> float4:
+    let mut miplevel = mip_level(uv, settings.virtual_texture_size)
+    miplevel = clamp(miplevel, 0.0, log2(settings.page_table_size) - 1.0)
+
+    let mip1 = floor(miplevel)
+    let mip2 = mip1 + 1.0
+    let mipfrac = miplevel - mip1
+
+    let page1 = sample_table(uv, mip1)
+    let page2 = sample_table(uv, mip2)
+
+    let sample1 = sample_atlas(page1, uv)
+    let sample2 = sample_atlas(page2, uv)
+
+    return mix(sample1, sample2, mipfrac)
+
+// Simple bilinear
+fun virtual_texture(uv: float2){vt, settings} -> float4:
+    let mut mip = floor(mip_level(uv, settings.virtual_texture_size))
+    mip = clamp(mip, 0.0, log2(settings.page_table_size))
+
+    let page = sample_table(uv, mip)
+    return sample_atlas(page, uv)
+
+@pixel fun main(p: varyings){vt, settings} -> target:
+    return {
+        color = virtual_texture(p.texcoord0.xy)
+    }

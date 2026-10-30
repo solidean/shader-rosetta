@@ -31,6 +31,10 @@
             "file": "cs_s2h_scatter.spv",
             "by": "bgfx shaderc b7d0751baa",
             "args": "--type compute --platform linux -p spirv -i ../../src -i ../common/"
+        },
+        "sgl": {
+            "status": "translated",
+            "file": "cs_s2h_scatter.sgl"
         }
     }
 }

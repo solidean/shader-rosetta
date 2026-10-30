@@ -31,6 +31,10 @@
             "file": "cs_fsr_easu_32.spv",
             "by": "bgfx shaderc b7d0751baa",
             "args": "--type compute --platform linux -p spirv -i ../../src"
+        },
+        "sgl": {
+            "status": "translated",
+            "file": "cs_fsr_easu_32.sgl"
         }
     }
 }

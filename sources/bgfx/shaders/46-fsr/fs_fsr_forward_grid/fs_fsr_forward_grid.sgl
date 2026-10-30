@@ -1,0 +1,60 @@
+// Translated to SGL from bgfx examples/46-fsr/fs_fsr_forward_grid.sc and common/shaderlib.sh.
+// Copyright 2021 elven cache. BSD-2-Clause: sources/bgfx/LICENSE.
+
+// bgfx's u_modelParams[2], one member per define
+binding model_params:
+    color: float3
+    light_position: float3
+
+struct varyings:
+    @position position: hpos4
+    normal: float3
+    texcoord0: float2
+    texcoord1: float4
+    texcoord2: float4
+
+@pixel struct target:
+    color: float4
+
+// shaderlib.sh
+fun to_linear(rgb: float3) => pow(abs(rgb), float3(2.2))
+
+fun mod_helper(a: float, b: float) -> int => (a - (b * floor(a / b))) as int
+
+fun get_grid_color(position: float2, width: float, color: float3) -> float3:
+    let position = abs(floor(position + float2(-width, -width)))
+    let pos_x_mod = mod_helper(position.x, 2.0)
+    let pos_y_mod = mod_helper(position.y, 2.0)
+    let grid_color_scale = if pos_x_mod == pos_y_mod => 0.75 else 1.25
+    return to_linear(color) * grid_color_scale
+
+@pixel fun main(p: varyings){model_params} -> target:
+    // contains ws pos
+    let world_space_position = p.texcoord1.xyz
+    // assuming y is up
+    let grid_coord = world_space_position.xz
+    let grid_color = get_grid_color(grid_coord.xy, 0.002, model_params.color)
+
+    // get vertex normal
+    let normal = normalize(p.normal)
+
+    let light = normalize(model_params.light_position - world_space_position)
+
+    let ndotl = saturate(dot(normal, light))
+    let diffuse = ndotl * 1.0
+
+    // contains view vector
+    let v = p.texcoord2.xyz
+    let h = normalize(v + light)
+    let ndoth = saturate(dot(normal, h))
+    let specular = 5.0 * pow(ndoth, 256.0)
+    let ambient = 0.1
+
+    let light_amount = ambient + diffuse
+    let color = grid_color * light_amount + specular
+
+    // leave color in linear space for better dof filter result
+
+    return {
+        color = float4(..color, 1.0)
+    }

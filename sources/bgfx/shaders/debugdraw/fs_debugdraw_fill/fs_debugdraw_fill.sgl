@@ -1,0 +1,23 @@
+// Translated to SGL from bgfx examples/common/debugdraw/fs_debugdraw_fill.sc.
+// Copyright 2011-2026 Branimir Karadzic. BSD-2-Clause: sources/bgfx/LICENSE.
+
+// bgfx's u_params[4], one member per define
+binding params:
+    light_dir: vec3
+    shininess: float
+    sky_color: float3
+    unused0: float
+    ground_color: float3
+    unused1: float
+    mat_color: float4
+
+struct varyings:
+    @position position: hpos4
+
+@pixel struct target:
+    color: float4
+
+@pixel fun main(p: varyings){params} -> target:
+    return {
+        color = params.mat_color
+    }

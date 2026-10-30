@@ -1,0 +1,32 @@
+// Translated to SGL from bgfx examples/16-shadowmaps/fs_shadowmaps_unpackdepth.sc and common/shaderlib.sh.
+// Copyright 2013-2014 Dario Manesku. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding params:
+    // u_params2
+    depth_value_pow: float
+    shadow_map_show_coverage: float
+    shadow_map_texel_size: float
+    params2_w: float
+
+binding shadow:
+    shadow_map0: texture_2d[float4]
+    sampler s_shadow_map:
+        filter = .linear
+
+struct varyings:
+    @position position: hpos4
+    texcoord0: float2
+
+@pixel struct target:
+    color: float4
+
+fun unpack_rgba_to_float(rgba: float4) -> float:
+    let shift = float4(1.0 / (255.0 * 255.0 * 255.0), 1.0 / (255.0 * 255.0), 1.0 / 255.0, 1.0)
+    return dot(rgba, shift)
+
+@pixel fun main(p: varyings){params, shadow} -> target:
+    let depth = unpack_rgba_to_float(shadow.shadow_map0.sample(p.texcoord0, shadow.s_shadow_map))
+    let rgba = pow(float3(depth), float3(params.depth_value_pow))
+    return {
+        color = float4(..rgba, 1.0)
+    }

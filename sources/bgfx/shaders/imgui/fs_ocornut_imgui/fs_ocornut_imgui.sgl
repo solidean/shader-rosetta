@@ -1,0 +1,54 @@
+// Translated to SGL from bgfx examples/common/imgui/fs_ocornut_imgui.sc and imgui_output.sh.
+// The original carries no copyright line; imgui_output.sh: Copyright 2011-2026 Branimir Karadzic. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding material:
+    tex: texture_2d[float4]
+    sampler s_tex:
+        filter = .linear
+
+// bgfx's u_imguiOutput, one member per define
+binding params:
+    imgui_output_mode: float
+    imgui_output_white: float
+
+struct varyings:
+    @position position: hpos4
+    color0: float4
+    texcoord0: float2
+
+@pixel struct target:
+    color: float4
+
+// the SMPTE ST 2084 (PQ) constants
+const m1 = 2610.0 / 16384.0
+const m2 = 2523.0 / 4096.0 * 128.0
+const c1 = 3424.0 / 4096.0
+const c2 = 2413.0 / 4096.0 * 32.0
+const c3 = 2392.0 / 4096.0 * 32.0
+
+fun imgui_output(color: float3){params} -> float3:
+    if params.imgui_output_mode < 0.5:
+        return color
+
+    let lo = color / 12.92
+    let hi = pow((color + 0.055) / 1.055, float3(2.4))
+    let rgb = select(color <= float3(0.04045), lo, hi) * params.imgui_output_white
+
+    if params.imgui_output_mode < 1.5:
+        return rgb
+
+    let bt2020 = float3(
+        dot(float3(0.6274, 0.3293, 0.0433), rgb)
+        dot(float3(0.0691, 0.9195, 0.0114), rgb)
+        dot(float3(0.0164, 0.0880, 0.8956), rgb)
+    )
+
+    let yy = pow(saturate(bt2020), float3(m1))
+    return pow((c1 + c2 * yy) / (1.0 + c3 * yy), float3(m2))
+
+@pixel fun main(p: varyings){material, params} -> target:
+    let texel = material.tex.sample(p.texcoord0, material.s_tex)
+    let color = texel * p.color0
+    return {
+        color = float4(..imgui_output(color.xyz), color.w)
+    }

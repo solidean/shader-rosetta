@@ -1,0 +1,13 @@
+// Translated to SGL from bgfx examples/54-s2h/cs_s2h_scatter_clear.sc.
+// The original carries no copyright line; bgfx: Copyright 2010-2026 Branimir Karadzic. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding scatter:
+    scatter_color: out image_2d[.rgba8_unorm]
+
+binding params:
+    s2h_scatter_size: float4
+
+@compute(8, 8, 1) fun main(@thread_id id: int3){scatter, params}:
+    let pixel = id.xy
+    if pixel.x < (params.s2h_scatter_size.x as int) and pixel.y < (params.s2h_scatter_size.y as int):
+        scatter.scatter_color[pixel] = float4(0.40, 0.70, 0.40, 1.0)

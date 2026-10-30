@@ -1,0 +1,31 @@
+// Translated to SGL from bgfx examples/common/font/vs_font_distance_field_outline_drop_shadow_image.sc.
+// Copyright 2010-2026 Branimir Karadzic, bgfx's line, since the original names none. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding view:
+    model_view_proj: mat4
+
+@vertex struct vertex_input:
+    position: float2
+    color0: float4
+    color1: float4
+    texcoord0: float4
+    texcoord1: float4
+    texcoord2: float4
+
+struct varyings:
+    @position position: hpos4
+    color0: float4
+    color1: float4
+    texcoord0: float4
+    texcoord1: float4
+    texcoord2: float4
+
+@vertex fun main(v: vertex_input){view} -> varyings:
+    return {
+        position = view.model_view_proj * pos3(..v.position, 0.0)
+        color0 = v.color0
+        color1 = v.color1
+        texcoord0 = v.texcoord0
+        texcoord1 = v.texcoord1
+        texcoord2 = v.texcoord2
+    }

@@ -1,0 +1,342 @@
+// Translated to SGL from bgfx examples/46-fsr/cs_fsr_easu_16.sc, cs_fsr.h, ffx_a.h and ffx_fsr1.h.
+// Copyright 2021 Richard Schubert. BSD-2-Clause: sources/bgfx/LICENSE.
+// ffx_a.h and ffx_fsr1.h, AMD FidelityFX FSR 1: Copyright (c) 2021 Advanced Micro Devices, Inc. MIT: sources/bgfx/upstream/examples/46-fsr/ffx_fsr1.h.
+
+// SAMPLE_HALF_MATH, which every target but GLSL compiles: the 16-bit math, into an rgba16f image
+require shader_f16
+
+// bgfx's u_params[3], one member per define of cs_fsr.h
+binding params:
+    viewport_size_rcas_attenuation: float4
+    src_size: float4
+    dst_size: float4
+
+binding fsr:
+    input_texture: texture_2d[float4]
+    output_texture: out image_2d[.rgba16_float]
+    sampler s_input:
+        filter = .linear
+
+// ffx_a.h
+fun rcp(x: float) => 1.0 / x
+
+fun rcp(x: half) => 1.0 / x
+
+fun rcp(x: half2) => half2(1.0) / x
+
+// gap: a half has no `.bits` and no `half.from_bits`, and no bit operator takes a ushort, so its bits travel in a uint
+fun half_bits(a: half) => pack_half2x16(float2(a as float, 0.0))
+
+// gap: the stand-in's way back, from the low 16 bits of a uint
+fun half_from_bits(u: uint) => unpack_half2x16(u).x as half
+
+fun prx_lo_rcp(a: half) => half_from_bits(0x7784u - half_bits(a))
+
+fun prx_lo_rsq(a: half) => half_from_bits(0x59a3u - (half_bits(a) >> 1u))
+
+fun bfe(src: uint, off: uint, bits: uint) -> uint:
+    let mask = (1u << bits) - 1u
+    return (src >> off) & mask
+
+fun bfi_m(src: uint, ins: uint, bits: uint) -> uint:
+    let mask = (1u << bits) - 1u
+    return (ins & mask) | (src & (~mask))
+
+// Remap the lane index of a 64-wide workgroup to an 8x8 tile, in a pixel-shader-like swizzle.
+fun rmp8x8(a: uint) => uint2(bfe(a, 1u, 3u), bfi_m(bfe(a, 3u, 3u), a, 1u))
+
+// ffx_fsr1.h's FsrEasuCon outputs, one member per `out` parameter
+struct easu_constants:
+    con0: uint4
+    con1: uint4
+    con2: uint4
+    con3: uint4
+
+// Call to setup required constant values (works on CPU or GPU).
+fun fsr_easu_con(
+    // This the rendered image resolution being upscaled
+    input_viewport_in_pixels_x: float
+    input_viewport_in_pixels_y: float
+    // This is the resolution of the resource containing the input image (useful for dynamic resolution)
+    input_size_in_pixels_x: float
+    input_size_in_pixels_y: float
+    // This is the display resolution which the input image gets upscaled to
+    output_size_in_pixels_x: float
+    output_size_in_pixels_y: float
+) -> easu_constants:
+    return {
+        // Output integer position to a pixel position in viewport.
+        con0 = uint4(
+            (input_viewport_in_pixels_x * rcp(output_size_in_pixels_x)).bits
+            (input_viewport_in_pixels_y * rcp(output_size_in_pixels_y)).bits
+            (0.5 * input_viewport_in_pixels_x * rcp(output_size_in_pixels_x) - 0.5).bits
+            (0.5 * input_viewport_in_pixels_y * rcp(output_size_in_pixels_y) - 0.5).bits
+        )
+        // Viewport pixel position to normalized image space.
+        // This is used to get upper-left of 'F' tap.
+        // Then the centers of gather4, first offset from upper-left of 'F'.
+        con1 = uint4(
+            rcp(input_size_in_pixels_x).bits
+            rcp(input_size_in_pixels_y).bits
+            (1.0 * rcp(input_size_in_pixels_x)).bits
+            (-1.0 * rcp(input_size_in_pixels_y)).bits
+        )
+        // These are from (0) instead of 'F'.
+        con2 = uint4(
+            (-1.0 * rcp(input_size_in_pixels_x)).bits
+            (2.0 * rcp(input_size_in_pixels_y)).bits
+            (1.0 * rcp(input_size_in_pixels_x)).bits
+            (2.0 * rcp(input_size_in_pixels_y)).bits
+        )
+        con3 = uint4(
+            (0.0 * rcp(input_size_in_pixels_x)).bits
+            (4.0 * rcp(input_size_in_pixels_y)).bits
+            0u
+            0u
+        )
+    }
+
+// cs_fsr.h's input callbacks
+fun fsr_easu_r(p: float2){fsr} -> half4 => fsr.input_texture.gather(p, fsr.s_input, component = texel_component.x) as half4
+
+fun fsr_easu_g(p: float2){fsr} -> half4 => fsr.input_texture.gather(p, fsr.s_input, component = texel_component.y) as half4
+
+fun fsr_easu_b(p: float2){fsr} -> half4 => fsr.input_texture.gather(p, fsr.s_input, component = texel_component.z) as half4
+
+// This runs 2 taps in parallel.
+fun fsr_easu_tap(
+    a_c_r: mut half2
+    a_c_g: mut half2
+    a_c_b: mut half2
+    a_w: mut half2
+    off_x: half2
+    off_y: half2
+    dir: half2
+    len: half2
+    lob: half
+    clp: half
+    c_r: half2
+    c_g: half2
+    c_b: half2
+):
+    let mut v_x = off_x * dir.xx + off_y * dir.yy
+    let mut v_y = off_x * (-dir.yy) + off_y * dir.xx
+    v_x *= len.x
+    v_y *= len.y
+    let mut d2 = v_x * v_x + v_y * v_y
+    d2 = min(d2, half2(clp))
+    let mut w_b = half2(half(2.0 / 5.0)) * d2 + half2(-1.0)
+    let mut w_a = half2(lob) * d2 + half2(-1.0)
+    w_b *= w_b
+    w_a *= w_a
+    w_b = half2(half(25.0 / 16.0)) * w_b + half2(half(-(25.0 / 16.0 - 1.0)))
+    let w = w_b * w_a
+    a_c_r += c_r * w
+    a_c_g += c_g * w
+    a_c_b += c_b * w
+    a_w += w
+
+// This runs 2 taps in parallel.
+fun fsr_easu_set(
+    dir_p_x: mut half2
+    dir_p_y: mut half2
+    len_p: mut half2
+    pp: half2
+    bi_s_t: bool
+    bi_u_v: bool
+    l_a: half2
+    l_b: half2
+    l_c: half2
+    l_d: half2
+    l_e: half2
+):
+    let mut w = half2(0.0)
+    if bi_s_t => w = (half2(1.0, 0.0) + half2(-pp.x, pp.x)) * half2(1.0 - pp.y)
+    if bi_u_v => w = (half2(1.0, 0.0) + half2(-pp.x, pp.x)) * half2(pp.y)
+    // ABS is not free in the packed FP16 path.
+    let dc = l_d - l_c
+    let cb = l_c - l_b
+    let mut len_x = max(abs(dc), abs(cb))
+    len_x = rcp(len_x)
+    let dir_x = l_d - l_b
+    dir_p_x += dir_x * w
+    len_x = saturate(abs(dir_x) * len_x)
+    len_x *= len_x
+    len_p += len_x * w
+    let ec = l_e - l_c
+    let ca = l_c - l_a
+    let mut len_y = max(abs(ec), abs(ca))
+    len_y = rcp(len_y)
+    let dir_y = l_e - l_a
+    dir_p_y += dir_y * w
+    len_y = saturate(abs(dir_y) * len_y)
+    len_y *= len_y
+    len_p += len_y * w
+
+fun fsr_easu(ip: uint2, con: easu_constants){fsr} -> half3:
+    let mut pp = (ip as float2) * float2.from_bits(con.con0.xy) + float2.from_bits(con.con0.zw)
+    let fp = floor(pp)
+    pp -= fp
+    let ppp = pp as half2
+
+    let p0 = fp * float2.from_bits(con.con1.xy) + float2.from_bits(con.con1.zw)
+    let p1 = p0 + float2.from_bits(con.con2.xy)
+    let p2 = p0 + float2.from_bits(con.con2.zw)
+    let p3 = p0 + float2.from_bits(con.con3.xy)
+    let bczz_r = fsr_easu_r(p0)
+    let bczz_g = fsr_easu_g(p0)
+    let bczz_b = fsr_easu_b(p0)
+    let ijfe_r = fsr_easu_r(p1)
+    let ijfe_g = fsr_easu_g(p1)
+    let ijfe_b = fsr_easu_b(p1)
+    let klhg_r = fsr_easu_r(p2)
+    let klhg_g = fsr_easu_g(p2)
+    let klhg_b = fsr_easu_b(p2)
+    let zzon_r = fsr_easu_r(p3)
+    let zzon_g = fsr_easu_g(p3)
+    let zzon_b = fsr_easu_b(p3)
+
+    let bczz_l = bczz_b * half4(0.5) + (bczz_r * half4(0.5) + bczz_g)
+    let ijfe_l = ijfe_b * half4(0.5) + (ijfe_r * half4(0.5) + ijfe_g)
+    let klhg_l = klhg_b * half4(0.5) + (klhg_r * half4(0.5) + klhg_g)
+    let zzon_l = zzon_b * half4(0.5) + (zzon_r * half4(0.5) + zzon_g)
+    let b_l = bczz_l.x
+    let c_l = bczz_l.y
+    let i_l = ijfe_l.x
+    let j_l = ijfe_l.y
+    let f_l = ijfe_l.z
+    let e_l = ijfe_l.w
+    let k_l = klhg_l.x
+    let l_l = klhg_l.y
+    let h_l = klhg_l.z
+    let g_l = klhg_l.w
+    let o_l = zzon_l.z
+    let n_l = zzon_l.w
+    // This part is different, accumulating 2 taps in parallel.
+    let mut dir_p_x = half2(0.0)
+    let mut dir_p_y = half2(0.0)
+    let mut len_p = half2(0.0)
+    fsr_easu_set(
+        mut dir_p_x
+        mut dir_p_y
+        mut len_p
+        ppp
+        true
+        false
+        half2(b_l, c_l)
+        half2(e_l, f_l)
+        half2(f_l, g_l)
+        half2(g_l, h_l)
+        half2(j_l, k_l)
+    )
+    fsr_easu_set(
+        mut dir_p_x
+        mut dir_p_y
+        mut len_p
+        ppp
+        false
+        true
+        half2(f_l, g_l)
+        half2(i_l, j_l)
+        half2(j_l, k_l)
+        half2(k_l, l_l)
+        half2(n_l, o_l)
+    )
+    let mut dir = half2(dir_p_x.r + dir_p_x.g, dir_p_y.r + dir_p_y.g)
+    let mut len = len_p.r + len_p.g
+
+    let dir2 = dir * dir
+    let mut dir_r = dir2.x + dir2.y
+    let zro = dir_r < half(1.0 / 32768.0)
+    dir_r = prx_lo_rsq(dir_r)
+    dir_r = if zro => half(1.0) else dir_r
+    dir.x = if zro => half(1.0) else dir.x
+    dir *= half2(dir_r)
+    len = len * half(0.5)
+    len *= len
+    let stretch = (dir.x * dir.x + dir.y * dir.y) * prx_lo_rcp(max(abs(dir.x), abs(dir.y)))
+    let len2 = half2(half(1.0) + (stretch - half(1.0)) * len, half(1.0) + half(-0.5) * len)
+    let lob = half(0.5) + half((1.0 / 4.0 - 0.04) - 0.5) * len
+    let clp = prx_lo_rcp(lob)
+
+    // FP16 is different, using packed trick to do min and max in same operation.
+    let both_r = max(max(half2(-ijfe_r.z, ijfe_r.z), half2(-klhg_r.w, klhg_r.w)), max(half2(-ijfe_r.y, ijfe_r.y), half2(-klhg_r.x, klhg_r.x)))
+    let both_g = max(max(half2(-ijfe_g.z, ijfe_g.z), half2(-klhg_g.w, klhg_g.w)), max(half2(-ijfe_g.y, ijfe_g.y), half2(-klhg_g.x, klhg_g.x)))
+    let both_b = max(max(half2(-ijfe_b.z, ijfe_b.z), half2(-klhg_b.w, klhg_b.w)), max(half2(-ijfe_b.y, ijfe_b.y), half2(-klhg_b.x, klhg_b.x)))
+    // This part is different for FP16, working pairs of taps at a time.
+    let mut p_r = half2(0.0)
+    let mut p_g = half2(0.0)
+    let mut p_b = half2(0.0)
+    let mut p_w = half2(0.0)
+    fsr_easu_tap(
+        mut p_r, mut p_g, mut p_b, mut p_w
+        half2(0.0, 1.0) - ppp.xx, half2(-1.0, -1.0) - ppp.yy
+        dir, len2, lob, clp
+        bczz_r.xy, bczz_g.xy, bczz_b.xy
+    )
+    fsr_easu_tap(
+        mut p_r, mut p_g, mut p_b, mut p_w
+        half2(-1.0, 0.0) - ppp.xx, half2(1.0, 1.0) - ppp.yy
+        dir, len2, lob, clp
+        ijfe_r.xy, ijfe_g.xy, ijfe_b.xy
+    )
+    fsr_easu_tap(
+        mut p_r, mut p_g, mut p_b, mut p_w
+        half2(0.0, -1.0) - ppp.xx, half2(0.0, 0.0) - ppp.yy
+        dir, len2, lob, clp
+        ijfe_r.zw, ijfe_g.zw, ijfe_b.zw
+    )
+    fsr_easu_tap(
+        mut p_r, mut p_g, mut p_b, mut p_w
+        half2(1.0, 2.0) - ppp.xx, half2(1.0, 1.0) - ppp.yy
+        dir, len2, lob, clp
+        klhg_r.xy, klhg_g.xy, klhg_b.xy
+    )
+    fsr_easu_tap(
+        mut p_r, mut p_g, mut p_b, mut p_w
+        half2(2.0, 1.0) - ppp.xx, half2(0.0, 0.0) - ppp.yy
+        dir, len2, lob, clp
+        klhg_r.zw, klhg_g.zw, klhg_b.zw
+    )
+    fsr_easu_tap(
+        mut p_r, mut p_g, mut p_b, mut p_w
+        half2(1.0, 0.0) - ppp.xx, half2(2.0, 2.0) - ppp.yy
+        dir, len2, lob, clp
+        zzon_r.zw, zzon_g.zw, zzon_b.zw
+    )
+    let a_c = half3(p_r.x + p_r.y, p_g.x + p_g.y, p_b.x + p_b.y)
+    let a_w = p_w.x + p_w.y
+
+    // Slightly different for FP16 version due to combined min and max.
+    return min(half3(both_r.y, both_g.y, both_b.y), max(-half3(both_r.x, both_g.x, both_b.x), a_c * half3(rcp(a_w))))
+
+fun curr_filter(pos: uint2, con: easu_constants, sample_flags: uint4){fsr}:
+    let mut c = fsr_easu(pos, con)
+    if sample_flags.x == 1u => c *= c
+    fsr.output_texture[pos as int2] = (half4(..c, 1.0) as float4) as texel[.rgba16_float]
+
+@compute(64, 1, 1) fun main(@local_thread_id local_id: int3, @workgroup_id group_id: int3){params, fsr}:
+    // We compute these constants on GPU because bgfx does not support uniform type uint.
+    let con = fsr_easu_con(
+        // Viewport size (top left aligned) in the input image which is to be scaled.
+        params.viewport_size_rcas_attenuation.x
+        params.viewport_size_rcas_attenuation.y
+        // The size of the input image.
+        params.src_size.x
+        params.src_size.y
+        // The output resolution.
+        params.dst_size.x
+        params.dst_size.y
+    )
+    // no HDR output; only its x is read
+    let sample_flags = uint4(0u)
+
+    // Do remapping of local xy in workgroup for a more PS-like swizzle pattern.
+    let mut gxy = rmp8x8(local_id.x as uint) + uint2((group_id.x as uint) << 4u, (group_id.y as uint) << 4u)
+    curr_filter(gxy, con, sample_flags)
+    gxy.x += 8u
+    curr_filter(gxy, con, sample_flags)
+    gxy.y += 8u
+    curr_filter(gxy, con, sample_flags)
+    gxy.x -= 8u
+    curr_filter(gxy, con, sample_flags)

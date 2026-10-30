@@ -1,0 +1,234 @@
+// Translated to SGL from bgfx examples/51-gpufont/fs_slug.sc.
+// The original carries no bgfx copyright line; bgfx: Copyright 2010-2026 Branimir Karadzic. BSD-2-Clause: sources/bgfx/LICENSE.
+// Slug reference shaders: Copyright 2017, by Eric Lengyel. MIT.
+
+// ===================================================
+// Reference pixel shader for the Slug algorithm.
+// This code is made available under the MIT License.
+// Copyright 2017, by Eric Lengyel.
+// ===================================================
+
+binding glyphs:
+    curve_data: texture_2d[float4]
+    band_data: texture_2d[float4]
+
+binding params:
+    // x = foreground color, y = background color, each RGBA8 packed into a float's bits
+    params: float4
+
+struct varyings:
+    @position position: hpos4
+    texcoord0: float2
+    @interpolate(.flat) banding: float4
+    @interpolate(.flat) glyph: float4
+
+@pixel struct target:
+    color: float4
+
+// The curve and band textures use a fixed width of 4096 texels.
+
+const log_band_texture_width = 12
+
+fun calc_root_code(y1: float, y2: float, y3: float) -> int:
+    // Calculate the root eligibility code for a sample-relative quadratic Bezier curve.
+    // Extract the signs of the y coordinates of the three control points.
+
+    let i1 = if y1 < 0.0 => 1 else 0
+    let i2 = if y2 < 0.0 => 2 else 0
+    let i3 = if y3 < 0.0 => 4 else 0
+    let shift = i1 + i2 + i3
+
+    // Eligibility is returned in bits 0 and 8.
+
+    return (0x2E74 >> shift) & 0x0101
+
+fun solve_horiz_poly(p12: float4, p3: float2) -> float2:
+    // Solve for the values of t where the curve crosses y = 0.
+    // The quadratic polynomial in t is given by
+    //
+    //     a t^2 - 2b t + c,
+    //
+    // where a = p1.y - 2 p2.y + p3.y, b = p1.y - p2.y, and c = p1.y.
+    // The discriminant b^2 - ac is clamped to zero, and imaginary
+    // roots are treated as a double root at the global minimum
+    // where t = b / a.
+
+    let a = p12.xy - p12.zw * 2.0 + p3
+    let b = p12.xy - p12.zw
+    let ra = 1.0 / a.y
+    let rb = 0.5 / b.y
+
+    let d = sqrt(max(b.y * b.y - a.y * p12.y, 0.0))
+    let mut t1 = (b.y - d) * ra
+    let mut t2 = (b.y + d) * ra
+
+    // If the polynomial is nearly linear, then solve -2b t + c = 0.
+
+    if abs(a.y) < 1.0 / 65536.0:
+        t1 = p12.y * rb
+        t2 = t1
+
+    // Return the x coordinates where C(t) = 0.
+
+    return float2((a.x * t1 - b.x * 2.0) * t1 + p12.x, (a.x * t2 - b.x * 2.0) * t2 + p12.x)
+
+fun solve_vert_poly(p12: float4, p3: float2) -> float2:
+    // Solve for the values of t where the curve crosses x = 0.
+
+    let a = p12.xy - p12.zw * 2.0 + p3
+    let b = p12.xy - p12.zw
+    let ra = 1.0 / a.x
+    let rb = 0.5 / b.x
+
+    let d = sqrt(max(b.x * b.x - a.x * p12.x, 0.0))
+    let mut t1 = (b.x - d) * ra
+    let mut t2 = (b.x + d) * ra
+
+    if abs(a.x) < 1.0 / 65536.0:
+        t1 = p12.x * rb
+        t2 = t1
+
+    return float2(
+        (a.y * t1 - b.y * 2.0) * t1 + p12.y
+        (a.y * t2 - b.y * 2.0) * t2 + p12.y
+    )
+
+fun calc_band_loc(glyph_loc: int2, offset: int) -> int2:
+    // If the offset causes the x coordinate to exceed the texture width, then wrap to the next line.
+
+    let mut band_loc = int2(glyph_loc.x + offset, glyph_loc.y)
+    band_loc.y += band_loc.x >> log_band_texture_width
+    band_loc.x &= (1 << log_band_texture_width) - 1
+    return band_loc
+
+fun calc_coverage(xcov: float, ycov: float, xwgt: float, ywgt: float) -> float:
+    // Combine coverages from the horizontal and vertical rays using their weights.
+    // Absolute values ensure that either winding direction convention works.
+
+    let mut coverage = max(abs(xcov * xwgt + ycov * ywgt) / max(xwgt + ywgt, 1.0 / 65536.0), min(abs(xcov), abs(ycov)))
+
+    // Using nonzero fill rule here.
+
+    coverage = saturate(coverage)
+    return coverage
+
+fun slug_render(render_coord: float2, band_transform: float4, glyph_loc: int2, band_max: int2){glyphs} -> float:
+    // The effective pixel dimensions of the em square are computed
+    // independently for x and y directions with texcoord derivatives.
+
+    let ems_per_pixel = fwidth(render_coord)
+    let pixels_per_em = 1.0 / ems_per_pixel
+
+    // Determine what bands the current pixel lies in by applying a scale and offset
+    // to the render coordinates. The scales are given by band_transform.xy, and the
+    // offsets are given by band_transform.zw. Band indexes are clamped to [0, band_max.xy].
+
+    let band_index = clamp((render_coord * band_transform.xy + band_transform.zw) as int2, int2(0, 0), band_max)
+
+    let mut xcov = 0.0
+    let mut xwgt = 0.0
+
+    // Fetch data for the horizontal band from the index texture. The number
+    // of curves intersecting the band is in the x component, and the offset
+    // to the list of locations for those curves is in the y component.
+
+    let hband_raw = glyphs.band_data.load(int2(glyph_loc.x + band_index.y, glyph_loc.y), 0)
+    let hband_count = (hband_raw.x + 0.5) as int
+    let hband_offset = (hband_raw.y + 0.5) as int
+    let hband_loc = calc_band_loc(glyph_loc, hband_offset)
+
+    // Loop over all curves in the horizontal band.
+
+    for curve_index in 0 ..< hband_count:
+        // Fetch the location of the current curve from the index texture.
+
+        let loc_raw = glyphs.band_data.load(int2(hband_loc.x + curve_index, hband_loc.y), 0)
+        let curve_loc = int2((loc_raw.x + 0.5) as int, (loc_raw.y + 0.5) as int)
+
+        // Fetch the three 2D control points for the current curve from the curve texture.
+        // The first texel contains both p1 and p2 in the (x,y) and (z,w) components, respectively,
+        // and the the second texel contains p3 in the (x,y) components. Subtracting the render
+        // coordinates makes the curve relative to the sample position. The quadratic Bezier curve
+        // C(t) is given by
+        //
+        //     C(t) = (1 - t)^2 p1 + 2t(1 - t) p2 + t^2 p3
+
+        let p12 = glyphs.curve_data.load(curve_loc, 0) - float4(..render_coord, ..render_coord)
+        let p3 = glyphs.curve_data.load(int2(curve_loc.x + 1, curve_loc.y), 0).xy - render_coord
+
+        // If the largest x coordinate among all three control points falls
+        // left of the current pixel, then there are no more curves in the
+        // horizontal band that can influence the result, so exit the loop.
+        // (The curves are sorted in descending order by max x coordinate.)
+
+        if max(max(p12.x, p12.z), p3.x) * pixels_per_em.x < -0.5 => break
+
+        let code = calc_root_code(p12.y, p12.w, p3.y)
+        if code != 0:
+            let r = solve_horiz_poly(p12, p3) * pixels_per_em.x
+
+            if (code & 1) != 0:
+                xcov += saturate(r.x + 0.5)
+                xwgt = max(xwgt, saturate(1.0 - abs(r.x) * 2.0))
+
+            if code > 1:
+                xcov -= saturate(r.y + 0.5)
+                xwgt = max(xwgt, saturate(1.0 - abs(r.y) * 2.0))
+
+    let mut ycov = 0.0
+    let mut ywgt = 0.0
+
+    // Fetch data for the vertical band from the index texture. This follows
+    // the data for all horizontal bands, so we have to add band_max.y + 1.
+
+    let vband_raw = glyphs.band_data.load(int2(glyph_loc.x + band_max.y + 1 + band_index.x, glyph_loc.y), 0)
+    let vband_count = (vband_raw.x + 0.5) as int
+    let vband_offset = (vband_raw.y + 0.5) as int
+    let vband_loc = calc_band_loc(glyph_loc, vband_offset)
+
+    // Loop over all curves in the vertical band.
+
+    for curve_index in 0 ..< vband_count:
+        let loc_raw = glyphs.band_data.load(int2(vband_loc.x + curve_index, vband_loc.y), 0)
+        let curve_loc = int2((loc_raw.x + 0.5) as int, (loc_raw.y + 0.5) as int)
+
+        let p12 = glyphs.curve_data.load(curve_loc, 0) - float4(..render_coord, ..render_coord)
+        let p3 = glyphs.curve_data.load(int2(curve_loc.x + 1, curve_loc.y), 0).xy - render_coord
+
+        if max(max(p12.y, p12.w), p3.y) * pixels_per_em.y < -0.5 => break
+
+        let code = calc_root_code(p12.x, p12.z, p3.x)
+        if code != 0:
+            let r = solve_vert_poly(p12, p3) * pixels_per_em.y
+
+            if (code & 1) != 0:
+                ycov -= saturate(r.x + 0.5)
+                ywgt = max(ywgt, saturate(1.0 - abs(r.x) * 2.0))
+
+            if code > 1:
+                ycov += saturate(r.y + 0.5)
+                ywgt = max(ywgt, saturate(1.0 - abs(r.y) * 2.0))
+
+    return calc_coverage(xcov, ycov, xwgt, ywgt)
+
+fun unpack_rgba8(packed: float) -> float4:
+    let rgba = packed.bits
+    return float4(
+        ((rgba >> 24u) & 0xffu) as float
+        ((rgba >> 16u) & 0xffu) as float
+        ((rgba >> 8u) & 0xffu) as float
+        (rgba & 0xffu) as float
+    ) / 255.0
+
+@pixel fun main(p: varyings){glyphs, params} -> target:
+    let glyph_loc = p.glyph.xy as int2
+    let mut band_max = p.glyph.zw as int2
+    band_max.y &= 0x00FF
+
+    let coverage = slug_render(p.texcoord0, p.banding, glyph_loc, band_max)
+    let fg = unpack_rgba8(params.params.x)
+    let bg = unpack_rgba8(params.params.y)
+
+    return {
+        color = mix(bg, fg, coverage)
+    }

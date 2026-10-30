@@ -1,0 +1,29 @@
+// Translated to SGL from bgfx examples/14-shadowvolumes/vs_shadowvolume_svside.sc.
+// Copyright 2013-2014 Dario Manesku. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding view:
+    model_view_proj: mat4
+
+// bgfx's u_virtualLightPos_extrusionDist, one member per define
+binding params:
+    virtual_light_pos: pos3
+    extrusion_distance: float
+
+@vertex struct vertex_input:
+    position: pos3
+    // x is 1.0 on a vertex to extrude, y is the side's k
+    texcoord0: float2
+
+struct varyings:
+    @position position: hpos4
+    k: float
+
+@vertex fun main(v: vertex_input){view, params} -> varyings:
+    let mut pos = v.position
+    if v.texcoord0.x == 1.0:
+        let to_light = pos - params.virtual_light_pos
+        pos += normalize(to_light) * params.extrusion_distance
+    return {
+        position = view.model_view_proj * pos
+        k = v.texcoord0.y
+    }

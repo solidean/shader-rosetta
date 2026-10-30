@@ -1,0 +1,59 @@
+// Translated to SGL from bgfx examples/54-s2h/fs_s2h_use_user_font.sc, with common/s2h/s2h_bgfx.sh.
+// The original carries no copyright line; bgfx: Copyright 2010-2026 Branimir Karadzic. BSD-2-Clause: sources/bgfx/LICENSE.
+// Shader To Human (S2H): Copyright (c) 2024-2025 Electronic Arts Inc. BSD-3-Clause: sources/bgfx/licenses/ShaderToHuman.txt.
+
+binding view:
+    view_rect: float4
+
+binding material:
+    quad_post_color: texture_2d[float4]
+    sampler s_quad_post_color:
+        filter = .linear
+
+struct varyings:
+    @position position: hpos4
+    color0: float4
+    texcoord0: float2
+
+@pixel struct target:
+    color: float4
+
+// ---- s2h_bgfx.sh ----
+
+// S2H uses a top-left pixel origin; bgfx_ndc.z is the OpenGL origin sign.
+// The original's GLSL arm flips y by it; no SGL target has GL's origin, so this is its other arm.
+fun s2h_get_pixel_coord(fragment_coord: float2) -> float2:
+    return fragment_coord
+
+// bgfx's mod(), as it expands on HLSL
+fun mod(x: float, y: float) -> float:
+    return x - y * floor(x / y)
+
+fun user_font_character(index: uint) -> uint:
+    if 0u == index => return 85u // U
+    if 1u == index => return 115u // s
+    if 2u == index => return 101u // e
+    if 3u == index => return 114u // r
+    if 4u == index => return 70u // F
+    if 5u == index => return 111u // o
+    if 6u == index => return 110u // n
+    return 116u // t
+
+@pixel fun main(p: varyings){view, material} -> target:
+    let pixel = floor(s2h_get_pixel_coord(p.position.xy))
+    let background = float3(0.02, 0.02, 0.03)
+    let mut color = background
+    let scale = 8.0
+    let origin = float2(32.0, 48.0)
+    let local = pixel - origin
+    if local.x >= 0.0 and local.y >= 0.0 and local.x < 8.0 * 8.0 * scale and local.y < 8.0 * scale:
+        let character_index = (local.x / (8.0 * scale)) as uint
+        let glyph_pixel = floor(float2(mod(local.x / scale, 8.0), local.y / scale))
+        let character = user_font_character(character_index)
+        let atlas_pixel = float2(((character - 32u) as float) * 8.0 + glyph_pixel.x, glyph_pixel.y)
+        let atlas_uv = (atlas_pixel + 0.5) / view.view_rect.zw
+        // one texel at its center, after a branch on the pixel: read at level 0
+        color = material.quad_post_color.sample(atlas_uv, material.s_quad_post_color, level = 0.0).rgb
+    return {
+        color = float4(..color, 1.0)
+    }

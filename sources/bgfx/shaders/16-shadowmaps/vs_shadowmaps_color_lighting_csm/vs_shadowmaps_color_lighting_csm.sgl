@@ -1,0 +1,51 @@
+// Translated to SGL from bgfx examples/16-shadowmaps/vs_shadowmaps_color_lighting_csm.sc.
+// Copyright 2013-2014 Dario Manesku. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding view:
+    model: mat4
+    model_view: mat4
+    model_view_proj: mat4
+
+binding params:
+    // u_params1
+    shadow_map_bias: float
+    shadow_map_offset: float
+    shadow_map_param0: float
+    shadow_map_param1: float
+    light_mtx: mat4
+    shadow_map_mtx0: mat4
+    shadow_map_mtx1: mat4
+    shadow_map_mtx2: mat4
+    shadow_map_mtx3: mat4
+
+@vertex struct vertex_input:
+    position: pos3
+    normal: float4
+
+// in the order of varying.def.sc
+struct varyings:
+    @position position: hpos4
+    texcoord1: float4
+    texcoord2: float4
+    texcoord3: float4
+    texcoord4: float4
+    view: float3
+    pos: float4
+    normal: float3
+
+@vertex fun main(v: vertex_input){view, params} -> varyings:
+    let normal = v.normal * 2.0 - 1.0
+
+    let pos_offset = float4(..(v.position.xyz + normal.xyz * params.shadow_map_offset), 1.0)
+
+    let wpos = float4(..(view.model * pos_offset).xyz, 1.0)
+    return {
+        position = view.model_view_proj * v.position
+        texcoord1 = params.shadow_map_mtx0 * wpos
+        texcoord2 = params.shadow_map_mtx1 * wpos
+        texcoord3 = params.shadow_map_mtx2 * wpos
+        texcoord4 = params.shadow_map_mtx3 * wpos
+        view = (view.model_view * v.position).xyz
+        pos = view.model_view * pos_offset
+        normal = normalize((view.model_view * float4(..normal.xyz, 0.0)).xyz)
+    }

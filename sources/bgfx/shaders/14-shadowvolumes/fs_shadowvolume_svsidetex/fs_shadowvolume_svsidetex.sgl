@@ -1,0 +1,36 @@
+// Translated to SGL from bgfx examples/14-shadowvolumes/fs_shadowvolume_svsidetex.sc.
+// Copyright 2013-2014 Dario Manesku. BSD-2-Clause: sources/bgfx/LICENSE.
+
+// bgfx's u_svparams: x is fs_shadowvolume_*_lighting's u_useStencilTex, y is u_dfail, z and w are unused
+binding params:
+    use_stencil_tex: float
+    dfail: float
+    unused0: float
+    unused1: float
+
+struct varyings:
+    @position position: hpos4
+    k: float
+
+@pixel struct target:
+    color: float4
+
+// One channel per stencil step: +1, -1, +2, -2, each one count of an additive blend.
+fun stencil_color(k: float) -> float4:
+    return float4(
+        select(abs(k - 1.0) < 0.0001, 1.0, 0.0) / 255.0,
+        select(abs(k + 1.0) < 0.0001, 1.0, 0.0) / 255.0,
+        select(abs(k - 2.0) < 0.0001, 1.0, 0.0) / 255.0,
+        select(abs(k + 2.0) < 0.0001, 1.0, 0.0) / 255.0
+    )
+
+@pixel fun main(p: varyings, @is_front_facing front_facing: bool){params} -> target:
+    let mut k = p.k
+
+    if not front_facing => k = -k
+
+    if params.dfail == 0.0 => k = -k
+
+    return {
+        color = stencil_color(k)
+    }

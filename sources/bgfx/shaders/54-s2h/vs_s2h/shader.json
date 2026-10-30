@@ -31,6 +31,10 @@
             "file": "vs_s2h.spv",
             "by": "bgfx shaderc b7d0751baa",
             "args": "--type vertex --platform linux -p spirv -i ../../src -i ../common/"
+        },
+        "sgl": {
+            "status": "translated",
+            "file": "vs_s2h.sgl"
         }
     }
 }

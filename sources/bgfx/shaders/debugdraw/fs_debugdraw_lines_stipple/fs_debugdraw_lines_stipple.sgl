@@ -1,0 +1,20 @@
+// Translated to SGL from bgfx examples/common/debugdraw/fs_debugdraw_lines_stipple.sc.
+// Copyright 2011-2026 Branimir Karadzic. BSD-2-Clause: sources/bgfx/LICENSE.
+
+struct varyings:
+    @position position: hpos4
+    color0: float4
+    stipple: float
+
+@pixel struct target:
+    color: float4
+
+// GLSL's mod, which floors where SGL's % truncates
+fun mod(a: float, b: float) => a - b * floor(a / b)
+
+@pixel fun main(p: varyings) -> target:
+    if 0.125 < mod(p.stipple, 0.25) => discard
+
+    return {
+        color = p.color0
+    }

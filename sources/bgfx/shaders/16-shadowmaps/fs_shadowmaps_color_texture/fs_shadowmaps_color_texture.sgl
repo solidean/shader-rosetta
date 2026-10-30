@@ -1,0 +1,30 @@
+// Translated to SGL from bgfx examples/16-shadowmaps/fs_shadowmaps_color_texture.sc and common/shaderlib.sh.
+// Copyright 2013-2014 Dario Manesku. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding material:
+    color: float4
+    tex_color: texture_2d[float4]
+    sampler s_tex_color:
+        filter = .linear
+
+struct varyings:
+    @position position: hpos4
+    texcoord0: float2
+
+@pixel struct target:
+    color: float4
+
+fun to_linear(rgb: float3) => pow(abs(rgb), float3(2.2))
+
+fun to_linear(rgba: float4) => float4(..to_linear(rgba.xyz), rgba.w)
+
+fun to_gamma(rgb: float3) => pow(abs(rgb), float3(1.0 / 2.2))
+
+fun to_gamma(rgba: float4) => float4(..to_gamma(rgba.xyz), rgba.w)
+
+@pixel fun main(p: varyings){material} -> target:
+    let tcolor = to_linear(material.tex_color.sample(p.texcoord0, material.s_tex_color))
+    if tcolor.x < 0.1 => discard
+    return {
+        color = to_gamma(tcolor + material.color)
+    }

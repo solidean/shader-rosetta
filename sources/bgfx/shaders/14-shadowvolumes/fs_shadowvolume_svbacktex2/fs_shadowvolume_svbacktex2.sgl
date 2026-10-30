@@ -1,0 +1,23 @@
+// Translated to SGL from bgfx examples/14-shadowvolumes/fs_shadowvolume_svbacktex2.sc.
+// Copyright 2013-2014 Dario Manesku. BSD-2-Clause: sources/bgfx/LICENSE.
+
+struct varyings:
+    @position position: hpos4
+
+@pixel struct target:
+    color: float4
+
+// One channel per stencil step: +1, -1, +2, -2, each one count of an additive blend.
+fun stencil_color(k: float) -> float4:
+    return float4(
+        select(abs(k - 1.0) < 0.0001, 1.0, 0.0) / 255.0,
+        select(abs(k + 1.0) < 0.0001, 1.0, 0.0) / 255.0,
+        select(abs(k - 2.0) < 0.0001, 1.0, 0.0) / 255.0,
+        select(abs(k + 2.0) < 0.0001, 1.0, 0.0) / 255.0
+    )
+
+@pixel fun main(p: varyings, @is_front_facing front_facing: bool) -> target:
+    let k = if front_facing => 2.0 else -2.0
+    return {
+        color = stencil_color(k)
+    }

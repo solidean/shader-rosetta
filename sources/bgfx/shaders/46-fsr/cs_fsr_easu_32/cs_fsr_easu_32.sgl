@@ -1,0 +1,359 @@
+// Translated to SGL from bgfx examples/46-fsr/cs_fsr_easu_32.sc, cs_fsr.h, ffx_a.h and ffx_fsr1.h.
+// Copyright 2021 Richard Schubert. BSD-2-Clause: sources/bgfx/LICENSE.
+// ffx_a.h and ffx_fsr1.h, AMD FidelityFX FSR 1: Copyright (c) 2021 Advanced Micro Devices, Inc. MIT: sources/bgfx/upstream/examples/46-fsr/ffx_fsr1.h.
+
+// SAMPLE_SLOW_FALLBACK: the 32-bit math, into an rgba32f image
+
+// bgfx's u_params[3], one member per define of cs_fsr.h
+binding params:
+    viewport_size_rcas_attenuation: float4
+    src_size: float4
+    dst_size: float4
+
+binding fsr:
+    input_texture: texture_2d[float4]
+    output_texture: out image_2d[.rgba32_float]
+    sampler s_input:
+        filter = .linear
+
+// ffx_a.h
+fun rcp(x: float) => 1.0 / x
+
+fun prx_lo_rcp(a: float) => float.from_bits(0x7ef07ebbu - a.bits)
+
+fun prx_lo_rsq(a: float) => float.from_bits(0x5f347d74u - (a.bits >> 1u))
+
+fun min3(x: float3, y: float3, z: float3) => min(x, min(y, z))
+
+fun max3(x: float3, y: float3, z: float3) => max(x, max(y, z))
+
+fun bfe(src: uint, off: uint, bits: uint) -> uint:
+    let mask = (1u << bits) - 1u
+    return (src >> off) & mask
+
+fun bfi_m(src: uint, ins: uint, bits: uint) -> uint:
+    let mask = (1u << bits) - 1u
+    return (ins & mask) | (src & (~mask))
+
+// Remap the lane index of a 64-wide workgroup to an 8x8 tile, in a pixel-shader-like swizzle.
+fun rmp8x8(a: uint) => uint2(bfe(a, 1u, 3u), bfi_m(bfe(a, 3u, 3u), a, 1u))
+
+// ffx_fsr1.h's FsrEasuCon outputs, one member per `out` parameter
+struct easu_constants:
+    con0: uint4
+    con1: uint4
+    con2: uint4
+    con3: uint4
+
+// Call to setup required constant values (works on CPU or GPU).
+fun fsr_easu_con(
+    // This the rendered image resolution being upscaled
+    input_viewport_in_pixels_x: float
+    input_viewport_in_pixels_y: float
+    // This is the resolution of the resource containing the input image (useful for dynamic resolution)
+    input_size_in_pixels_x: float
+    input_size_in_pixels_y: float
+    // This is the display resolution which the input image gets upscaled to
+    output_size_in_pixels_x: float
+    output_size_in_pixels_y: float
+) -> easu_constants:
+    return {
+        // Output integer position to a pixel position in viewport.
+        con0 = uint4(
+            (input_viewport_in_pixels_x * rcp(output_size_in_pixels_x)).bits
+            (input_viewport_in_pixels_y * rcp(output_size_in_pixels_y)).bits
+            (0.5 * input_viewport_in_pixels_x * rcp(output_size_in_pixels_x) - 0.5).bits
+            (0.5 * input_viewport_in_pixels_y * rcp(output_size_in_pixels_y) - 0.5).bits
+        )
+        // Viewport pixel position to normalized image space.
+        // This is used to get upper-left of 'F' tap.
+        // Then the centers of gather4, first offset from upper-left of 'F'.
+        con1 = uint4(
+            rcp(input_size_in_pixels_x).bits
+            rcp(input_size_in_pixels_y).bits
+            (1.0 * rcp(input_size_in_pixels_x)).bits
+            (-1.0 * rcp(input_size_in_pixels_y)).bits
+        )
+        // These are from (0) instead of 'F'.
+        con2 = uint4(
+            (-1.0 * rcp(input_size_in_pixels_x)).bits
+            (2.0 * rcp(input_size_in_pixels_y)).bits
+            (1.0 * rcp(input_size_in_pixels_x)).bits
+            (2.0 * rcp(input_size_in_pixels_y)).bits
+        )
+        con3 = uint4(
+            (0.0 * rcp(input_size_in_pixels_x)).bits
+            (4.0 * rcp(input_size_in_pixels_y)).bits
+            0u
+            0u
+        )
+    }
+
+// cs_fsr.h's input callbacks
+fun fsr_easu_r(p: float2){fsr} -> float4 => fsr.input_texture.gather(p, fsr.s_input, component = texel_component.x)
+
+fun fsr_easu_g(p: float2){fsr} -> float4 => fsr.input_texture.gather(p, fsr.s_input, component = texel_component.y)
+
+fun fsr_easu_b(p: float2){fsr} -> float4 => fsr.input_texture.gather(p, fsr.s_input, component = texel_component.z)
+
+// Filtering for a given tap for the scalar.
+fun fsr_easu_tap(
+    // Accumulated color, with negative lobe.
+    a_c: mut float3
+    // Accumulated weight.
+    a_w: mut float
+    // Pixel offset from resolve position to tap.
+    off: float2
+    // Gradient direction.
+    dir: float2
+    // Length.
+    len: float2
+    // Negative lobe strength.
+    lob: float
+    // Clipping point.
+    clp: float
+    // Tap color.
+    c: float3
+):
+    // Rotate offset by direction.
+    let mut v = float2(off.x * dir.x + off.y * dir.y, off.x * (-dir.y) + off.y * dir.x)
+    // Anisotropy.
+    v *= len
+    // Compute distance^2.
+    let mut d2 = v.x * v.x + v.y * v.y
+    // Limit to the window as at corner, 2 taps can easily be outside.
+    d2 = min(d2, clp)
+    // Approximation of lancos2 without sin() or rcp(), or sqrt() to get x.
+    //  (25/16 * (2/5 * x^2 - 1)^2 - (25/16 - 1)) * (1/4 * x^2 - 1)^2
+    //  |_______________________________________|   |_______________|
+    //                   base                             window
+    // The general form of the 'base' is,
+    //  (a*(b*x^2-1)^2-(a-1))
+    // Where 'a=1/(2*b-b^2)' and 'b' moves around the negative lobe.
+    let mut w_b = (2.0 / 5.0) * d2 - 1.0
+    let mut w_a = lob * d2 - 1.0
+    w_b *= w_b
+    w_a *= w_a
+    w_b = (25.0 / 16.0) * w_b - (25.0 / 16.0 - 1.0)
+    let w = w_b * w_a
+    // Do weighted average.
+    a_c += c * w
+    a_w += w
+
+// Accumulate direction and length.
+fun fsr_easu_set(
+    dir: mut float2
+    len: mut float
+    pp: float2
+    bi_s: bool
+    bi_t: bool
+    bi_u: bool
+    bi_v: bool
+    l_a: float
+    l_b: float
+    l_c: float
+    l_d: float
+    l_e: float
+):
+    // Compute bilinear weight, branches factor out as predicates are compiler time immediates.
+    //  s t
+    //  u v
+    let mut w = 0.0
+    if bi_s => w = (1.0 - pp.x) * (1.0 - pp.y)
+    if bi_t => w = pp.x * (1.0 - pp.y)
+    if bi_u => w = (1.0 - pp.x) * pp.y
+    if bi_v => w = pp.x * pp.y
+    // Direction is the '+' diff.
+    //    a
+    //  b c d
+    //    e
+    // Then takes magnitude from abs average of both sides of 'c'.
+    // Length converts gradient reversal to 0, smoothly to non-reversal at 1, shaped, then adding horz and vert terms.
+    let dc = l_d - l_c
+    let cb = l_c - l_b
+    let mut len_x = max(abs(dc), abs(cb))
+    len_x = prx_lo_rcp(len_x)
+    let dir_x = l_d - l_b
+    dir.x += dir_x * w
+    len_x = saturate(abs(dir_x) * len_x)
+    len_x *= len_x
+    len += len_x * w
+    // Repeat for the y axis.
+    let ec = l_e - l_c
+    let ca = l_c - l_a
+    let mut len_y = max(abs(ec), abs(ca))
+    len_y = prx_lo_rcp(len_y)
+    let dir_y = l_e - l_a
+    dir.y += dir_y * w
+    len_y = saturate(abs(dir_y) * len_y)
+    len_y *= len_y
+    len += len_y * w
+
+fun fsr_easu(
+    // Integer pixel position in output.
+    ip: uint2
+    // Constants generated by fsr_easu_con().
+    con: easu_constants
+){fsr} -> float3:
+    // Get position of 'f'.
+    let mut pp = (ip as float2) * float2.from_bits(con.con0.xy) + float2.from_bits(con.con0.zw)
+    let fp = floor(pp)
+    pp -= fp
+
+    // 12-tap kernel.
+    //    b c
+    //  e f g h
+    //  i j k l
+    //    n o
+    // Gather 4 ordering.
+    //  a b
+    //  r g
+    // For packed FP16, need either {rg} or {ab} so using the following setup for gather in all versions,
+    //    a b    <- unused (z)
+    //    r g
+    //  a b a b
+    //  r g r g
+    //    a b
+    //    r g    <- unused (z)
+    // Allowing dead-code removal to remove the 'z's.
+    let p0 = fp * float2.from_bits(con.con1.xy) + float2.from_bits(con.con1.zw)
+    // These are from p0 to avoid pulling two constants on pre-Navi hardware.
+    let p1 = p0 + float2.from_bits(con.con2.xy)
+    let p2 = p0 + float2.from_bits(con.con2.zw)
+    let p3 = p0 + float2.from_bits(con.con3.xy)
+    let bczz_r = fsr_easu_r(p0)
+    let bczz_g = fsr_easu_g(p0)
+    let bczz_b = fsr_easu_b(p0)
+    let ijfe_r = fsr_easu_r(p1)
+    let ijfe_g = fsr_easu_g(p1)
+    let ijfe_b = fsr_easu_b(p1)
+    let klhg_r = fsr_easu_r(p2)
+    let klhg_g = fsr_easu_g(p2)
+    let klhg_b = fsr_easu_b(p2)
+    let zzon_r = fsr_easu_r(p3)
+    let zzon_g = fsr_easu_g(p3)
+    let zzon_b = fsr_easu_b(p3)
+
+    // Simplest multi-channel approximate luma possible (luma times 2, in 2 FMA/MAD).
+    let bczz_l = bczz_b * 0.5 + (bczz_r * 0.5 + bczz_g)
+    let ijfe_l = ijfe_b * 0.5 + (ijfe_r * 0.5 + ijfe_g)
+    let klhg_l = klhg_b * 0.5 + (klhg_r * 0.5 + klhg_g)
+    let zzon_l = zzon_b * 0.5 + (zzon_r * 0.5 + zzon_g)
+    // Rename.
+    let b_l = bczz_l.x
+    let c_l = bczz_l.y
+    let i_l = ijfe_l.x
+    let j_l = ijfe_l.y
+    let f_l = ijfe_l.z
+    let e_l = ijfe_l.w
+    let k_l = klhg_l.x
+    let l_l = klhg_l.y
+    let h_l = klhg_l.z
+    let g_l = klhg_l.w
+    let o_l = zzon_l.z
+    let n_l = zzon_l.w
+    // Accumulate for bilinear interpolation.
+    let mut dir = float2(0.0)
+    let mut len = 0.0
+    fsr_easu_set(mut dir, mut len, pp, true, false, false, false, b_l, e_l, f_l, g_l, j_l)
+    fsr_easu_set(mut dir, mut len, pp, false, true, false, false, c_l, f_l, g_l, h_l, k_l)
+    fsr_easu_set(mut dir, mut len, pp, false, false, true, false, f_l, i_l, j_l, k_l, n_l)
+    fsr_easu_set(mut dir, mut len, pp, false, false, false, true, g_l, j_l, k_l, l_l, o_l)
+
+    // Normalize with approximation, and cleanup close to zero.
+    let dir2 = dir * dir
+    let mut dir_r = dir2.x + dir2.y
+    let zro = dir_r < 1.0 / 32768.0
+    dir_r = prx_lo_rsq(dir_r)
+    dir_r = if zro => 1.0 else dir_r
+    dir.x = if zro => 1.0 else dir.x
+    dir *= dir_r
+    // Transform from {0 to 2} to {0 to 1} range, and shape with square.
+    len = len * 0.5
+    len *= len
+    // Stretch kernel {1.0 vert|horz, to sqrt(2.0) on diagonal}.
+    let stretch = (dir.x * dir.x + dir.y * dir.y) * prx_lo_rcp(max(abs(dir.x), abs(dir.y)))
+    // Anisotropic length after rotation,
+    //  x := 1.0 lerp to 'stretch' on edges
+    //  y := 1.0 lerp to 2x on edges
+    let len2 = float2(1.0 + (stretch - 1.0) * len, 1.0 + (-0.5) * len)
+    // Based on the amount of 'edge',
+    // the window shifts from +/-{sqrt(2.0) to slightly beyond 2.0}.
+    let lob = 0.5 + ((1.0 / 4.0 - 0.04) - 0.5) * len
+    // Set distance^2 clipping point to the end of the adjustable window.
+    let clp = prx_lo_rcp(lob)
+
+    // Accumulation mixed with min/max of 4 nearest.
+    //    b c
+    //  e f g h
+    //  i j k l
+    //    n o
+    let min4 = min(
+        min3(float3(ijfe_r.z, ijfe_g.z, ijfe_b.z), float3(klhg_r.w, klhg_g.w, klhg_b.w), float3(ijfe_r.y, ijfe_g.y, ijfe_b.y))
+        float3(klhg_r.x, klhg_g.x, klhg_b.x)
+    )
+    let max4 = max(
+        max3(float3(ijfe_r.z, ijfe_g.z, ijfe_b.z), float3(klhg_r.w, klhg_g.w, klhg_b.w), float3(ijfe_r.y, ijfe_g.y, ijfe_b.y))
+        float3(klhg_r.x, klhg_g.x, klhg_b.x)
+    )
+    // Accumulation.
+    let mut a_c = float3(0.0)
+    let mut a_w = 0.0
+    // b
+    fsr_easu_tap(mut a_c, mut a_w, float2(0.0, -1.0) - pp, dir, len2, lob, clp, float3(bczz_r.x, bczz_g.x, bczz_b.x))
+    // c
+    fsr_easu_tap(mut a_c, mut a_w, float2(1.0, -1.0) - pp, dir, len2, lob, clp, float3(bczz_r.y, bczz_g.y, bczz_b.y))
+    // i
+    fsr_easu_tap(mut a_c, mut a_w, float2(-1.0, 1.0) - pp, dir, len2, lob, clp, float3(ijfe_r.x, ijfe_g.x, ijfe_b.x))
+    // j
+    fsr_easu_tap(mut a_c, mut a_w, float2(0.0, 1.0) - pp, dir, len2, lob, clp, float3(ijfe_r.y, ijfe_g.y, ijfe_b.y))
+    // f
+    fsr_easu_tap(mut a_c, mut a_w, float2(0.0, 0.0) - pp, dir, len2, lob, clp, float3(ijfe_r.z, ijfe_g.z, ijfe_b.z))
+    // e
+    fsr_easu_tap(mut a_c, mut a_w, float2(-1.0, 0.0) - pp, dir, len2, lob, clp, float3(ijfe_r.w, ijfe_g.w, ijfe_b.w))
+    // k
+    fsr_easu_tap(mut a_c, mut a_w, float2(1.0, 1.0) - pp, dir, len2, lob, clp, float3(klhg_r.x, klhg_g.x, klhg_b.x))
+    // l
+    fsr_easu_tap(mut a_c, mut a_w, float2(2.0, 1.0) - pp, dir, len2, lob, clp, float3(klhg_r.y, klhg_g.y, klhg_b.y))
+    // h
+    fsr_easu_tap(mut a_c, mut a_w, float2(2.0, 0.0) - pp, dir, len2, lob, clp, float3(klhg_r.z, klhg_g.z, klhg_b.z))
+    // g
+    fsr_easu_tap(mut a_c, mut a_w, float2(1.0, 0.0) - pp, dir, len2, lob, clp, float3(klhg_r.w, klhg_g.w, klhg_b.w))
+    // o
+    fsr_easu_tap(mut a_c, mut a_w, float2(1.0, 2.0) - pp, dir, len2, lob, clp, float3(zzon_r.z, zzon_g.z, zzon_b.z))
+    // n
+    fsr_easu_tap(mut a_c, mut a_w, float2(0.0, 2.0) - pp, dir, len2, lob, clp, float3(zzon_r.w, zzon_g.w, zzon_b.w))
+
+    // Normalize and dering.
+    return min(max4, max(min4, a_c * rcp(a_w)))
+
+fun curr_filter(pos: uint2, con: easu_constants, sample_flags: uint4){fsr}:
+    let mut c = fsr_easu(pos, con)
+    if sample_flags.x == 1u => c *= c
+    fsr.output_texture[pos as int2] = float4(..c, 1.0) as texel[.rgba32_float]
+
+@compute(64, 1, 1) fun main(@local_thread_id local_id: int3, @workgroup_id group_id: int3){params, fsr}:
+    // We compute these constants on GPU because bgfx does not support uniform type uint.
+    let con = fsr_easu_con(
+        // Viewport size (top left aligned) in the input image which is to be scaled.
+        params.viewport_size_rcas_attenuation.x
+        params.viewport_size_rcas_attenuation.y
+        // The size of the input image.
+        params.src_size.x
+        params.src_size.y
+        // The output resolution.
+        params.dst_size.x
+        params.dst_size.y
+    )
+    // no HDR output; only its x is read
+    let sample_flags = uint4(0u)
+
+    // Do remapping of local xy in workgroup for a more PS-like swizzle pattern.
+    let mut gxy = rmp8x8(local_id.x as uint) + uint2((group_id.x as uint) << 4u, (group_id.y as uint) << 4u)
+    curr_filter(gxy, con, sample_flags)
+    gxy.x += 8u
+    curr_filter(gxy, con, sample_flags)
+    gxy.y += 8u
+    curr_filter(gxy, con, sample_flags)
+    gxy.x -= 8u
+    curr_filter(gxy, con, sample_flags)

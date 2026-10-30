@@ -1,0 +1,63 @@
+// Translated to SGL from bgfx examples/16-shadowmaps/fs_shadowmaps_hblur_vsm.sc, common.sh and common/shaderlib.sh.
+// Copyright 2013-2014 Dario Manesku. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding shadow:
+    shadow_map0: texture_2d[float4]
+    sampler s_shadow_map:
+        filter = .linear
+
+struct varyings:
+    @position position: hpos4
+    texcoord0: float2
+    texcoord1: float4
+    texcoord2: float4
+    texcoord3: float4
+    texcoord4: float4
+
+@pixel struct target:
+    color: float4
+
+const blur9_weight_0 = 1.0
+const blur9_weight_1 = 0.9
+const blur9_weight_2 = 0.55
+const blur9_weight_3 = 0.18
+const blur9_weight_4 = 0.1
+const blur9_normalize = blur9_weight_0 + 2.0 * (blur9_weight_1 + blur9_weight_2 + blur9_weight_3 + blur9_weight_4)
+
+fun pack_half_float(value: float) -> float2:
+    let shift = float2(255.0, 1.0)
+    let mask = float2(0.0, 1.0 / 255.0)
+    let mut comp = fract(value * shift)
+    comp -= comp.xx * mask
+    return comp
+
+fun unpack_half_float(rg: float2) -> float:
+    let shift = float2(1.0 / 255.0, 1.0)
+    return dot(rg, shift)
+
+fun blur9_vsm(tex: texture_2d[float4], smp: sampler, uv0: float2, uv1: float4, uv2: float4, uv3: float4, uv4: float4) -> float4:
+    let mut val = tex.sample(uv0, smp) * (blur9_weight_0 / blur9_normalize)
+    let mut blur = float2(unpack_half_float(val.rg), unpack_half_float(val.ba))
+    val = tex.sample(uv1.xy, smp) * (blur9_weight_1 / blur9_normalize)
+    blur += float2(unpack_half_float(val.rg), unpack_half_float(val.ba))
+    val = tex.sample(uv1.zw, smp) * (blur9_weight_1 / blur9_normalize)
+    blur += float2(unpack_half_float(val.rg), unpack_half_float(val.ba))
+    val = tex.sample(uv2.xy, smp) * (blur9_weight_2 / blur9_normalize)
+    blur += float2(unpack_half_float(val.rg), unpack_half_float(val.ba))
+    val = tex.sample(uv2.zw, smp) * (blur9_weight_2 / blur9_normalize)
+    blur += float2(unpack_half_float(val.rg), unpack_half_float(val.ba))
+    val = tex.sample(uv3.xy, smp) * (blur9_weight_3 / blur9_normalize)
+    blur += float2(unpack_half_float(val.rg), unpack_half_float(val.ba))
+    val = tex.sample(uv3.zw, smp) * (blur9_weight_3 / blur9_normalize)
+    blur += float2(unpack_half_float(val.rg), unpack_half_float(val.ba))
+    val = tex.sample(uv4.xy, smp) * (blur9_weight_4 / blur9_normalize)
+    blur += float2(unpack_half_float(val.rg), unpack_half_float(val.ba))
+    val = tex.sample(uv4.zw, smp) * (blur9_weight_4 / blur9_normalize)
+    blur += float2(unpack_half_float(val.rg), unpack_half_float(val.ba))
+
+    return float4(..pack_half_float(blur.x), ..pack_half_float(blur.y))
+
+@pixel fun main(p: varyings){shadow} -> target:
+    return {
+        color = blur9_vsm(shadow.shadow_map0, shadow.s_shadow_map, p.texcoord0, p.texcoord1, p.texcoord2, p.texcoord3, p.texcoord4)
+    }
