@@ -34,9 +34,9 @@ fun lit(ndotl: float, rdotv: float, m: float) -> float4:
     let spec = step(0.0, ndotl) * max(0.0, rdotv * m)
     return float4(1.0, diff, spec, 1.0)
 
-fun to_linear(c: float4) => float4(..pow(c.xyz, float3(2.2)), c.w)
+fun to_linear(c: float4) => float4(..pow(abs(c.xyz), float3(2.2)), c.w)
 
-fun to_gamma(c: float4) => float4(..pow(c.xyz, float3(1.0 / 2.2)), c.w)
+fun to_gamma(c: float4) => float4(..pow(abs(c.xyz), float3(1.0 / 2.2)), c.w)
 
 fun calc_light(idx: int, tbn: mat3, wpos: float3, normal: float3, view: float3){lights} -> float3:
     let lp = lights.light_pos_radius[idx].xyz - wpos

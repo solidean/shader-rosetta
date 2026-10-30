@@ -1,0 +1,92 @@
+// Translated to SGL from bgfx examples/15-shadowmaps-simple/fs_sms_mesh.sc and fs_sms_shadow.sh.
+// Copyright 2013-2014 Dario Manesku. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding light:
+    light_pos: float4
+
+binding shadow:
+    shadow_map: texture_2d_depth
+    sampler s_shadow_map:
+        filter = .linear
+        compare = .less_equal
+
+struct varyings:
+    @position position: hpos4
+    view: float3
+    normal: float3
+    shadowcoord: float4
+
+@pixel struct target:
+    color: float4
+
+fun lit(ld: float3, n: float3, vd: float3, exp: float) -> float2:
+    // diffuse
+    let ndotl = dot(n, ld)
+
+    // specular
+    let r = 2.0 * ndotl * n - ld
+    let rdotv = dot(r, vd)
+    let spec = step(0.0, ndotl) * pow(max(0.0, rdotv), exp) * (2.0 + exp) / 8.0
+
+    return max(float2(ndotl, spec), float2(0.0))
+
+fun hard_shadow(shadow_coord: float4, bias: float){shadow} -> float:
+    let tex_coord = shadow_coord.xyz / shadow_coord.w
+    return shadow.shadow_map.sample_compare(tex_coord.xy, shadow.s_shadow_map, reference = tex_coord.z - bias, level = 0.0)
+
+fun pcf(shadow_coord: float4, bias: float, texel_size: float2){shadow} -> float:
+    let tex_coord = shadow_coord.xy / shadow_coord.w
+
+    let outside = any(tex_coord > float2(1.0)) or any(tex_coord < float2(0.0))
+    if outside:
+        return 1.0
+
+    let mut result = 0.0
+    let offset = texel_size * shadow_coord.w
+
+    result += hard_shadow(shadow_coord + float4(..(float2(-1.5, -1.5) * offset), 0.0, 0.0), bias)
+    result += hard_shadow(shadow_coord + float4(..(float2(-1.5, -0.5) * offset), 0.0, 0.0), bias)
+    result += hard_shadow(shadow_coord + float4(..(float2(-1.5, 0.5) * offset), 0.0, 0.0), bias)
+    result += hard_shadow(shadow_coord + float4(..(float2(-1.5, 1.5) * offset), 0.0, 0.0), bias)
+
+    result += hard_shadow(shadow_coord + float4(..(float2(-0.5, -1.5) * offset), 0.0, 0.0), bias)
+    result += hard_shadow(shadow_coord + float4(..(float2(-0.5, -0.5) * offset), 0.0, 0.0), bias)
+    result += hard_shadow(shadow_coord + float4(..(float2(-0.5, 0.5) * offset), 0.0, 0.0), bias)
+    result += hard_shadow(shadow_coord + float4(..(float2(-0.5, 1.5) * offset), 0.0, 0.0), bias)
+
+    result += hard_shadow(shadow_coord + float4(..(float2(0.5, -1.5) * offset), 0.0, 0.0), bias)
+    result += hard_shadow(shadow_coord + float4(..(float2(0.5, -0.5) * offset), 0.0, 0.0), bias)
+    result += hard_shadow(shadow_coord + float4(..(float2(0.5, 0.5) * offset), 0.0, 0.0), bias)
+    result += hard_shadow(shadow_coord + float4(..(float2(0.5, 1.5) * offset), 0.0, 0.0), bias)
+
+    result += hard_shadow(shadow_coord + float4(..(float2(1.5, -1.5) * offset), 0.0, 0.0), bias)
+    result += hard_shadow(shadow_coord + float4(..(float2(1.5, -0.5) * offset), 0.0, 0.0), bias)
+    result += hard_shadow(shadow_coord + float4(..(float2(1.5, 0.5) * offset), 0.0, 0.0), bias)
+    result += hard_shadow(shadow_coord + float4(..(float2(1.5, 1.5) * offset), 0.0, 0.0), bias)
+
+    return result / 16.0
+
+fun to_gamma(c: float3) => pow(abs(c), float3(1.0 / 2.2))
+
+@pixel fun main(p: varyings){light, shadow} -> target:
+    let shadow_map_bias = 0.005
+    let color = float3(1.0)
+
+    let v = p.view
+    let vd = -normalize(v)
+    let n = p.normal
+    let l = light.light_pos.xyz
+    let ld = -normalize(l)
+
+    let lc = lit(ld, n, vd, 1.0)
+
+    let texel_size = float2(1.0 / 512.0)
+    let visibility = pcf(p.shadowcoord, shadow_map_bias, texel_size)
+
+    let ambient = 0.1 * color
+    let brdf = (lc.x + lc.y) * color * visibility
+
+    let final = to_gamma(abs(ambient + brdf))
+    return {
+        color = float4(..final, 1.0)
+    }

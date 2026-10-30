@@ -1,0 +1,47 @@
+// Translated to SGL from bgfx examples/09-hdr/fs_hdr_lumavg.sc.
+// Copyright 2011-2026 Branimir Karadzic. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding params:
+    offset: float4[16]
+
+binding material:
+    tex_color: texture_2d[float4]
+    sampler s_tex:
+        filter = .linear
+
+struct varyings:
+    @position position: hpos4
+    texcoord0: float2
+
+@pixel struct target:
+    color: float4
+
+fun encode_re8(r: float) -> float4:
+    let exponent = ceil(log2(r))
+    return float4(r / exp2(exponent), 0.0, 0.0, (exponent + 128.0) / 255.0)
+
+fun decode_re8(re8: float4) -> float:
+    let exponent = re8.w * 255.0 - 128.0
+    return re8.x * exp2(exponent)
+
+@pixel fun main(p: varyings){params, material} -> target:
+    let mut sum = decode_re8(material.tex_color.sample(p.texcoord0 + params.offset[0].xy, material.s_tex))
+    sum += decode_re8(material.tex_color.sample(p.texcoord0 + params.offset[1].xy, material.s_tex))
+    sum += decode_re8(material.tex_color.sample(p.texcoord0 + params.offset[2].xy, material.s_tex))
+    sum += decode_re8(material.tex_color.sample(p.texcoord0 + params.offset[3].xy, material.s_tex))
+    sum += decode_re8(material.tex_color.sample(p.texcoord0 + params.offset[4].xy, material.s_tex))
+    sum += decode_re8(material.tex_color.sample(p.texcoord0 + params.offset[5].xy, material.s_tex))
+    sum += decode_re8(material.tex_color.sample(p.texcoord0 + params.offset[6].xy, material.s_tex))
+    sum += decode_re8(material.tex_color.sample(p.texcoord0 + params.offset[7].xy, material.s_tex))
+    sum += decode_re8(material.tex_color.sample(p.texcoord0 + params.offset[8].xy, material.s_tex))
+    sum += decode_re8(material.tex_color.sample(p.texcoord0 + params.offset[9].xy, material.s_tex))
+    sum += decode_re8(material.tex_color.sample(p.texcoord0 + params.offset[10].xy, material.s_tex))
+    sum += decode_re8(material.tex_color.sample(p.texcoord0 + params.offset[11].xy, material.s_tex))
+    sum += decode_re8(material.tex_color.sample(p.texcoord0 + params.offset[12].xy, material.s_tex))
+    sum += decode_re8(material.tex_color.sample(p.texcoord0 + params.offset[13].xy, material.s_tex))
+    sum += decode_re8(material.tex_color.sample(p.texcoord0 + params.offset[14].xy, material.s_tex))
+    sum += decode_re8(material.tex_color.sample(p.texcoord0 + params.offset[15].xy, material.s_tex))
+    let avg = sum / 16.0
+    return {
+        color = encode_re8(avg)
+    }

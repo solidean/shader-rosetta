@@ -1,0 +1,28 @@
+// Translated to SGL from bgfx examples/38-bloom/fs_bloom_combine.sc.
+// Copyright 2011-2026 Branimir Karadzic. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding material:
+    albedo: texture_2d[float4]
+    light: texture_2d[float4]
+    sampler s_tex:
+        filter = .linear
+
+struct varyings:
+    @position position: hpos4
+    texcoord0: float2
+
+@pixel struct target:
+    color: float4
+
+@pixel fun main(p: varyings){material} -> target:
+    let mut hdr_color = material.albedo.sample(p.texcoord0, material.s_tex).xyz
+
+    hdr_color += material.light.sample(p.texcoord0, material.s_tex).xyz
+
+    // instead of a fancy tonemapping operator, a clamp keeps it simple
+    let final_color = clamp(hdr_color, float3(0.0), float3(1.0))
+
+    let g = 2.2
+    return {
+        color = float4(..pow(final_color, float3(1.0 / g, 1.0 / g, 1.0 / g)), 1.0)
+    }

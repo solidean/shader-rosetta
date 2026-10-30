@@ -1,0 +1,24 @@
+// Translated to SGL from bgfx examples/37-gpudrivenrendering/vs_gdr_render_occlusion.sc.
+// Copyright 2018 Kostas Anagnostou. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding view:
+    view_proj: mat4
+
+// bgfx's $input names i_data4 too, which varying.def.sc does not declare and the shader never reads
+@vertex struct vertex_input:
+    position: float3
+    @per_instance data0: float4
+    @per_instance data1: float4
+    @per_instance data2: float4
+    @per_instance data3: float4
+
+struct varyings:
+    @position position: hpos4
+
+@vertex fun main(v: vertex_input){view} -> varyings:
+    let model = mat4(v.data0, v.data1, v.data2, v.data3)
+
+    let world_pos = model * float4(..v.position, 1.0)
+    return {
+        position = hpos4(..(view.view_proj * world_pos))
+    }

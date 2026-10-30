@@ -1,0 +1,48 @@
+// Translated to SGL from bgfx examples/09-hdr/fs_hdr_lum.sc.
+// Copyright 2011-2026 Branimir Karadzic. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding params:
+    offset: float4[16]
+
+binding material:
+    tex_color: texture_2d[float4]
+    sampler s_tex:
+        filter = .linear
+
+struct varyings:
+    @position position: hpos4
+    texcoord0: float2
+
+@pixel struct target:
+    color: float4
+
+fun encode_re8(r: float) -> float4:
+    let exponent = ceil(log2(r))
+    return float4(r / exp2(exponent), 0.0, 0.0, (exponent + 128.0) / 255.0)
+
+fun decode_rgbe8(rgbe8: float4) -> float3:
+    let exponent = rgbe8.w * 255.0 - 128.0
+    return rgbe8.xyz * exp2(exponent)
+
+fun luma(rgb: float3) -> float3:
+    let yy = dot(float3(0.2126729, 0.7151522, 0.0721750), rgb)
+    return float3(yy)
+
+@pixel fun main(p: varyings){params, material} -> target:
+    let delta = 0.0001
+
+    let rgb0 = decode_rgbe8(material.tex_color.sample(p.texcoord0 + params.offset[0].xy, material.s_tex))
+    let rgb1 = decode_rgbe8(material.tex_color.sample(p.texcoord0 + params.offset[1].xy, material.s_tex))
+    let rgb2 = decode_rgbe8(material.tex_color.sample(p.texcoord0 + params.offset[2].xy, material.s_tex))
+    let rgb3 = decode_rgbe8(material.tex_color.sample(p.texcoord0 + params.offset[3].xy, material.s_tex))
+    let rgb4 = decode_rgbe8(material.tex_color.sample(p.texcoord0 + params.offset[4].xy, material.s_tex))
+    let rgb5 = decode_rgbe8(material.tex_color.sample(p.texcoord0 + params.offset[5].xy, material.s_tex))
+    let rgb6 = decode_rgbe8(material.tex_color.sample(p.texcoord0 + params.offset[6].xy, material.s_tex))
+    let rgb7 = decode_rgbe8(material.tex_color.sample(p.texcoord0 + params.offset[7].xy, material.s_tex))
+    let rgb8 = decode_rgbe8(material.tex_color.sample(p.texcoord0 + params.offset[8].xy, material.s_tex))
+    let mut avg = luma(rgb0).x + luma(rgb1).x + luma(rgb2).x + luma(rgb3).x + luma(rgb4).x + luma(rgb5).x + luma(rgb6).x + luma(rgb7).x + luma(rgb8).x
+    avg *= 1.0 / 9.0
+
+    return {
+        color = encode_re8(avg)
+    }

@@ -1,0 +1,18 @@
+// Translated to SGL from bgfx examples/02-metaballs/fs_metaballs.sc.
+// Copyright 2011-2026 Branimir Karadzic. BSD-2-Clause: sources/bgfx/LICENSE.
+
+struct varyings:
+    @position position: hpos4
+    normal: float3
+    color0: float4
+
+@pixel struct target:
+    color: float4
+
+@pixel fun main(v: varyings) -> target:
+    let light_dir = float3(0.0, 0.0, -1.0)
+    let ndotl = dot(normalize(v.normal), light_dir)
+    let spec = pow(ndotl, 30.0)
+    return {
+        color = float4(..pow(pow(v.color0.xyz, float3(2.2)) * ndotl + spec, float3(1.0 / 2.2)), 1.0)
+    }

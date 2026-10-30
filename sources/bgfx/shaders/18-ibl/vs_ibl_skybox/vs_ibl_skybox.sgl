@@ -1,0 +1,55 @@
+// Translated to SGL from bgfx examples/18-ibl/vs_ibl_skybox.sc.
+// Copyright 2014-2016 Dario Manesku. BSD-2-Clause: sources/bgfx/LICENSE.
+
+const pi = 3.1415926535897932384626433832795
+
+binding view:
+    model_view_proj: mat4
+    view_rect: float4
+
+// bgfx's u_params[12], one member per define of uniforms.sh
+binding params:
+    mtx0: float4
+    mtx1: float4
+    mtx2: float4
+    mtx3: float4
+    glossiness: float
+    reflectivity: float
+    exposure: float
+    bg_type: float
+    metal_or_spec: float
+    unused: float3
+    do_diffuse: float
+    do_specular: float
+    do_diffuse_ibl: float
+    do_specular_ibl: float
+    cam_pos: float3
+    unused7: float
+    rgb_diff: float4
+    rgb_spec: float4
+    light_dir: float3
+    unused10: float
+    light_col: float3
+    unused11: float
+
+@vertex struct vertex_input:
+    position: pos3
+    texcoord0: float2
+
+struct varyings:
+    @position position: hpos4
+    dir: float3
+
+fun radians(degrees: float) => degrees * (pi / 180.0)
+
+@vertex fun main(v: vertex_input){view, params} -> varyings:
+    let fov = radians(45.0)
+    let height = tan(fov * 0.5)
+    let aspect = height * (view.view_rect.z / view.view_rect.w)
+    let tex = (2.0 * v.texcoord0 - 1.0) * float2(aspect, height)
+
+    let mtx = mat4(params.mtx0, params.mtx1, params.mtx2, params.mtx3)
+    return {
+        position = view.model_view_proj * v.position
+        dir = (mtx * float4(..tex, 1.0, 0.0)).xyz
+    }

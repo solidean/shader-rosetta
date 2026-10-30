@@ -1,0 +1,27 @@
+// Translated to SGL from bgfx examples/24-nbody/cs_indirect.sc.
+// Copyright 2014 Stanlo Slasinski. BSD-2-Clause: sources/bgfx/LICENSE.
+
+const thread_group_update_size = 512u
+
+binding params:
+    // bgfx carries it in a float's bits
+    dispatch_size: uint
+
+// bgfx's own uniform, which offsets every indexed draw's first index
+binding bgfx:
+    // bgfx carries it in a float's bits
+    indirect_arg_base: uint
+
+binding indirect:
+    indirect_buffer: mut buffer[uint4]
+
+fun draw_indexed_indirect(offset: int, num_indices: uint, num_instances: uint, start_index: uint, start_vertex: uint, start_instance: uint){indirect, bgfx}:
+    indirect.indirect_buffer[offset * 2 + 0] = uint4(num_indices, num_instances, bgfx.indirect_arg_base + start_index, start_vertex)
+    indirect.indirect_buffer[offset * 2 + 1] = uint4(start_instance, 0u, 0u, 0u)
+
+fun dispatch_indirect(offset: int, num_x: uint, num_y: uint, num_z: uint){indirect}:
+    indirect.indirect_buffer[offset * 2 + 0] = uint4(num_x, num_y, num_z, 0u)
+
+@compute(1) fun main(){params, bgfx, indirect}:
+    draw_indexed_indirect(0, 6u, params.dispatch_size * thread_group_update_size, 0u, 0u, 0u)
+    dispatch_indirect(1, params.dispatch_size, 1u, 1u)

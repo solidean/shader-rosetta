@@ -1,0 +1,111 @@
+// Translated to SGL from bgfx examples/09-hdr/fs_hdr_tonemap.sc.
+// Copyright 2011-2026 Branimir Karadzic. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding params:
+    middle_gray: float
+    white_sqr: float
+    threshold: float
+    time: float
+
+binding material:
+    tex_color: texture_2d[float4]
+    tex_lum: texture_2d[float4]
+    tex_blur: texture_2d[float4]
+    sampler s_tex:
+        filter = .linear
+
+struct varyings:
+    @position position: hpos4
+    texcoord0: float2
+    texcoord1: float4
+    texcoord2: float4
+    texcoord3: float4
+    texcoord4: float4
+
+@pixel struct target:
+    color: float4
+
+fun decode_re8(re8: float4) -> float:
+    let exponent = re8.w * 255.0 - 128.0
+    return re8.x * exp2(exponent)
+
+fun decode_rgbe8(rgbe8: float4) -> float3:
+    let exponent = rgbe8.w * 255.0 - 128.0
+    return rgbe8.xyz * exp2(exponent)
+
+fun reinhard2(x: float, white_sqr: float) => (x * (1.0 + x / white_sqr)) / (1.0 + x)
+
+fun reinhard2(x: float3, white_sqr: float) => (x * (1.0 + x / white_sqr)) / (1.0 + x)
+
+fun to_gamma(rgb: float3) => pow(abs(rgb), float3(1.0 / 2.2))
+
+fun to_gamma(rgba: float4) => float4(..to_gamma(rgba.xyz), rgba.w)
+
+const blur9_weight_0 = 1.0
+const blur9_weight_1 = 0.9
+const blur9_weight_2 = 0.55
+const blur9_weight_3 = 0.18
+const blur9_weight_4 = 0.1
+const blur9_normalize = blur9_weight_0 + 2.0 * (blur9_weight_1 + blur9_weight_2 + blur9_weight_3 + blur9_weight_4)
+
+fun blur9(tex: texture_2d[float4], smp: sampler, uv0: float2, uv1: float4, uv2: float4, uv3: float4, uv4: float4) -> float4:
+    let mut blur = tex.sample(uv0, smp) * (blur9_weight_0 / blur9_normalize)
+    blur += tex.sample(uv1.xy, smp) * (blur9_weight_1 / blur9_normalize)
+    blur += tex.sample(uv1.zw, smp) * (blur9_weight_1 / blur9_normalize)
+    blur += tex.sample(uv2.xy, smp) * (blur9_weight_2 / blur9_normalize)
+    blur += tex.sample(uv2.zw, smp) * (blur9_weight_2 / blur9_normalize)
+    blur += tex.sample(uv3.xy, smp) * (blur9_weight_3 / blur9_normalize)
+    blur += tex.sample(uv3.zw, smp) * (blur9_weight_3 / blur9_normalize)
+    blur += tex.sample(uv4.xy, smp) * (blur9_weight_4 / blur9_normalize)
+    blur += tex.sample(uv4.zw, smp) * (blur9_weight_4 / blur9_normalize)
+    return blur
+
+fun convert_rgb_to_xyz(rgb: float3) -> float3:
+    let x = dot(float3(0.4124564, 0.3575761, 0.1804375), rgb)
+    let y = dot(float3(0.2126729, 0.7151522, 0.0721750), rgb)
+    let z = dot(float3(0.0193339, 0.1191920, 0.9503041), rgb)
+    return float3(x, y, z)
+
+fun convert_xyz_to_rgb(xyz: float3) -> float3:
+    let r = dot(float3(3.2404542, -1.5371385, -0.4985314), xyz)
+    let g = dot(float3(-0.9692660, 1.8760108, 0.0415560), xyz)
+    let b = dot(float3(0.0556434, -0.2040259, 1.0572252), xyz)
+    return float3(r, g, b)
+
+fun convert_xyz_to_yxy(xyz: float3) -> float3:
+    let inv = 1.0 / dot(xyz, float3(1.0, 1.0, 1.0))
+    return float3(xyz.y, xyz.x * inv, xyz.y * inv)
+
+fun convert_yxy_to_xyz(yxy: float3) -> float3:
+    let x = yxy.x * yxy.y / yxy.z
+    let y = yxy.x
+    let z = yxy.x * (1.0 - yxy.y - yxy.z) / yxy.z
+    return float3(x, y, z)
+
+fun convert_rgb_to_yxy(rgb: float3) => convert_xyz_to_yxy(convert_rgb_to_xyz(rgb))
+
+fun convert_yxy_to_rgb(yxy: float3) => convert_xyz_to_rgb(convert_yxy_to_xyz(yxy))
+
+@pixel fun main(p: varyings){params, material} -> target:
+    let mut rgb = decode_rgbe8(material.tex_color.sample(p.texcoord0, material.s_tex))
+    let lum = clamp(decode_re8(material.tex_lum.sample(p.texcoord0, material.s_tex)), 0.1, 0.7)
+
+    let mut yxy = convert_rgb_to_yxy(rgb)
+
+    let middle_gray = params.middle_gray
+    let white_sqr = params.white_sqr
+    let threshold = params.threshold
+    let offset = params.time
+
+    let lp = yxy.x * middle_gray / (lum + 0.0001)
+    yxy.x = reinhard2(lp, white_sqr)
+
+    rgb = convert_yxy_to_rgb(yxy)
+
+    let blur = blur9(material.tex_blur, material.s_tex, p.texcoord0, p.texcoord1, p.texcoord2, p.texcoord3, p.texcoord4)
+
+    rgb += 0.6 * blur.xyz
+
+    return {
+        color = to_gamma(float4(..rgb, 1.0))
+    }

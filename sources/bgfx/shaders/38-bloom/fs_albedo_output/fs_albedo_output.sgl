@@ -1,0 +1,26 @@
+// Translated to SGL from bgfx examples/38-bloom/fs_albedo_output.sc.
+// Copyright 2018 Eric Arnebäck. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding params:
+    color: float4
+
+struct varyings:
+    @position position: hpos4
+    wpos: float3
+    view: float3
+    normal: float3
+    tangent: float3
+    bitangent: float3
+    texcoord0: float2
+
+@pixel struct target:
+    // the albedo buffer of the g-buffer
+    albedo: float4
+    // the first texture of the chain the bloom passes blur
+    bloom: float4
+
+@pixel fun main(p: varyings){params} -> target:
+    return {
+        albedo = params.color
+        bloom = params.color
+    }

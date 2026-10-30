@@ -1,0 +1,23 @@
+// Translated to SGL from bgfx examples/08-update/fs_update_3d.sc.
+// Copyright 2011-2026 Branimir Karadzic. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding material:
+    tex_color: texture_3d[float4]
+    sampler s_tex:
+        filter = .linear
+
+binding params:
+    time: float
+
+struct varyings:
+    @position position: hpos4
+    texcoord0: float3
+
+@pixel struct target:
+    color: float4
+
+@pixel fun main(v: varyings){material, params} -> target:
+    let uvw = float3(..(v.texcoord0.xy * 0.5 + 0.5), sin(params.time) * 0.5 + 0.5)
+    return {
+        color = float4(material.tex_color.sample(uvw, material.s_tex).x)
+    }

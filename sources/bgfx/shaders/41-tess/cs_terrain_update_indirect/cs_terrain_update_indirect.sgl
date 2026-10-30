@@ -1,0 +1,22 @@
+// Translated to SGL from bgfx examples/41-tess/cs_terrain_update_indirect.sc.
+// Copyright 2010-2026 Branimir Karadzic, bgfx's line, since the original names none. BSD-2-Clause: sources/bgfx/LICENSE.
+
+const update_indirect_value_divide = 32u
+
+binding terrain:
+    indirect_buffer: mut buffer[uint4]
+    atomic_counter_buffer: mut buffer[atomic[uint]]
+
+fun dispatch_indirect(offset: uint, num_x: uint, num_y: uint, num_z: uint){terrain}:
+    terrain.indirect_buffer[offset * 2u + 0u] = uint4(num_x, num_y, num_z, 0u)
+
+@compute(1) fun main(){terrain}:
+    let counter = terrain.atomic_counter_buffer[0].exchange(0u)
+    // bgfx keeps the second counter's old value and never reads it
+    terrain.atomic_counter_buffer[1].exchange(0u)
+
+    let cnt = (counter / 2u) / update_indirect_value_divide + 1u
+
+    terrain.atomic_counter_buffer[2].exchange(counter / 2u)
+
+    dispatch_indirect(1u, cnt, 1u, 1u)

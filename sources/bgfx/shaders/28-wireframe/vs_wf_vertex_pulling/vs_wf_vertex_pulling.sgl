@@ -1,0 +1,118 @@
+// Translated to SGL from bgfx examples/28-wireframe/vs_wf_vertex_pulling.sc.
+// Copyright 2026 Alessandro Muntoni. BSD-2-Clause: sources/bgfx/LICENSE.
+
+const near_epsilon = 0.001
+const length_epsilon = 0.0001
+
+binding view:
+    model_view_proj: mat4
+    view_rect: float4
+
+// bgfx's u_params[3], one member per define of uniforms.sh
+binding params:
+    cam_pos: float3
+    unused0: float
+    wf_color: float3
+    wf_opacity: float
+    draw_edges: float
+    wf_thickness: float
+    wf_stride: float
+
+// bgfx's BUFFER_RAW_RO, read a 32-bit word at a time
+binding geometry:
+    positions: bytes
+    indices: bytes
+
+struct varyings:
+    @position position: hpos4
+    color: float4
+
+// rawLoadUint takes the index of a word, and bytes.load the offset of its first byte
+fun raw_load_uint(b: bytes, index: uint) => b.load(index * 4u)
+
+fun raw_load_float(b: bytes, index: uint) => float.from_bits(raw_load_uint(b, index))
+
+// 16-bit indices, two to a word
+fun get_index(i: uint){geometry} -> uint:
+    let idx32 = raw_load_uint(geometry.indices, i / 2u)
+    if i % 2u == 0u:
+        return idx32 & 0xFFFFu
+    else:
+        return idx32 >> 16u
+
+fun get_position(index: uint){params, geometry} -> float3:
+    let stride_floats = params.wf_stride as uint
+    let offset = index * stride_floats
+    return float3(
+        raw_load_float(geometry.positions, offset + 0u),
+        raw_load_float(geometry.positions, offset + 1u),
+        raw_load_float(geometry.positions, offset + 2u)
+    )
+
+@vertex fun main(@vertex_index vertex_id: int){view, params, geometry} -> varyings:
+    let line_index = (vertex_id as uint) / 6u
+    let local_vertex = (vertex_id as uint) % 6u
+
+    let edge_index = line_index % 3u
+    let tri_first_index = line_index - edge_index
+
+    let idx0_loc = tri_first_index + edge_index
+    let idx1_loc = tri_first_index + ((edge_index + 1u) % 3u)
+
+    let vertex_index0 = get_index(idx0_loc)
+    let vertex_index1 = get_index(idx1_loc)
+
+    let p0 = get_position(vertex_index0)
+    let p1 = get_position(vertex_index1)
+
+    let p0_ndc = view.model_view_proj * float4(..p0, 1.0)
+    let p1_ndc = view.model_view_proj * float4(..p1, 1.0)
+
+    let c0 = float4(..params.wf_color, params.wf_opacity)
+    let c1 = float4(..params.wf_color, params.wf_opacity)
+
+    let mut clipped_p0 = p0_ndc
+    let mut clipped_p1 = p1_ndc
+    let mut clipped_color0 = c0
+    let mut clipped_color1 = c1
+
+    if p0_ndc.w < near_epsilon:
+        let t = (near_epsilon - p0_ndc.w) / (p1_ndc.w - p0_ndc.w)
+        clipped_p0 = mix(p0_ndc, p1_ndc, t)
+        clipped_color0 = mix(c0, c1, t)
+    if p1_ndc.w < near_epsilon:
+        let t = (near_epsilon - p1_ndc.w) / (p0_ndc.w - p1_ndc.w)
+        clipped_p1 = mix(p1_ndc, p0_ndc, t)
+        clipped_color1 = mix(c1, c0, t)
+
+    let offsets: float2[6] = [
+        float2(-1.0, -1.0), float2(-1.0, 1.0), float2(1.0, -1.0),
+        float2(1.0, -1.0), float2(-1.0, 1.0), float2(1.0, 1.0)
+    ]
+    let offset = offsets[local_vertex]
+    let uv = offset * 0.5 + 0.5
+
+    let mut p = mix(clipped_p0, clipped_p1, uv.x)
+    let color = mix(clipped_color0, clipped_color1, uv.x)
+
+    let ndp0 = clipped_p0.xy / clipped_p0.w
+    let ndp1 = clipped_p1.xy / clipped_p1.w
+    let screen_dir = ndp1 - ndp0
+    let screen_dir_len = length(screen_dir)
+
+    if screen_dir_len > length_epsilon:
+        let tangent = screen_dir / screen_dir_len
+        let normal = float2(-tangent.y, tangent.x)
+
+        let pixels_to_ndc_x = 2.0 / view.view_rect.z
+        let pixels_to_ndc_y = 2.0 / view.view_rect.w
+
+        let side = 2.0 * uv.y - 1.0
+        let offset_ndc = normal * (0.5 * params.wf_thickness) * side * float2(pixels_to_ndc_x, pixels_to_ndc_y)
+
+        p.xy = p.xy + (offset_ndc * p.w)
+
+    return {
+        position = hpos4(..p)
+        color = color
+    }

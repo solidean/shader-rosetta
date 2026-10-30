@@ -1,0 +1,77 @@
+// Translated to SGL from bgfx examples/36-sky/vs_sky.sc.
+// Copyright 2017 Stanislav Pidhorskyi. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding view:
+    inv_view_proj: mat4
+
+binding params:
+    sun_direction: float4
+    sky_luminance_xyz: float4
+    // x - sun size, y - sun bloom, z - exposition
+    parameters: float4
+    perez_coeff: float4[5]
+
+@vertex struct vertex_input:
+    position: float3
+
+struct varyings:
+    @position position: hpos4
+    sky_color: float3
+    screen_pos: float2
+    view_dir: float3
+
+fun perez(a: float3, b: float3, c: float3, d: float3, e: float3, costeta: float, cosgamma: float) -> float3:
+    let inv_costeta = 1.0 / costeta
+    let cos2gamma = cosgamma * cosgamma
+    let gamma = acos(cosgamma)
+    let f = (float3(1.0) + a * exp(b * inv_costeta)) * (float3(1.0) + c * exp(d * gamma) + e * cos2gamma)
+    return f
+
+// shaderlib.sh
+fun convert_xyz_to_rgb(xyz: float3) -> float3:
+    return float3(
+        dot(float3(3.2404542, -1.5371385, -0.4985314), xyz),
+        dot(float3(-0.9692660, 1.8760108, 0.0415560), xyz),
+        dot(float3(0.0556434, -0.2040259, 1.0572252), xyz)
+    )
+
+@vertex fun main(v: vertex_input){view, params} -> varyings:
+    let mut ray_start = view.inv_view_proj * float4(..v.position.xy, -1.0, 1.0)
+    let mut ray_end = view.inv_view_proj * float4(..v.position.xy, 1.0, 1.0)
+
+    ray_start = ray_start / ray_start.w
+    ray_end = ray_end / ray_end.w
+
+    let mut view_dir = normalize(ray_end.xyz - ray_start.xyz)
+    view_dir.y = abs(view_dir.y)
+
+    let light_dir = normalize(params.sun_direction.xyz)
+    let sky_dir = float3(0.0, 1.0, 0.0)
+
+    // Perez coefficients.
+    let a = params.perez_coeff[0].xyz
+    let b = params.perez_coeff[1].xyz
+    let c = params.perez_coeff[2].xyz
+    let d = params.perez_coeff[3].xyz
+    let e = params.perez_coeff[4].xyz
+
+    let costeta = max(dot(view_dir, sky_dir), 0.001)
+    let cosgamma = clamp(dot(view_dir, light_dir), -0.9999, 0.9999)
+    let cosgammas = dot(sky_dir, light_dir)
+
+    let p = perez(a, b, c, d, e, costeta, cosgamma)
+    let p0 = perez(a, b, c, d, e, 1.0, cosgammas)
+
+    let lum = params.sky_luminance_xyz
+    let sky_color_xyy = float3(lum.x / (lum.x + lum.y + lum.z), lum.y / (lum.x + lum.y + lum.z), lum.y)
+
+    let yp = sky_color_xyy * p / p0
+
+    let sky_color_xyz = float3(yp.x * yp.z / yp.y, yp.z, (1.0 - yp.x - yp.y) * yp.z / yp.y)
+
+    return {
+        position = hpos4(..v.position.xy, 1.0, 1.0)
+        sky_color = convert_xyz_to_rgb(sky_color_xyz * params.parameters.z)
+        screen_pos = v.position.xy
+        view_dir = view_dir
+    }

@@ -1,0 +1,29 @@
+// Translated to SGL from bgfx examples/37-gpudrivenrendering/cs_gdr_downscale_hi_z.sc.
+// Copyright 2018 Kostas Anagnostou. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding params:
+    input_rt_size: float4
+
+binding occlusion:
+    tex_occlusion_depth_in: image_2d[.r32_float]
+    tex_occlusion_depth_out: out image_2d[.r32_float]
+
+@compute(16, 16) fun main(@thread_id id: int3){params, occlusion}:
+    // this shader can be used to both copy a mip over to the output and downscale it
+    let coord = id.xy
+
+    if all((coord as float2) < params.input_rt_size.xy):
+        let mut max_depth = 1.0
+
+        let source = params.input_rt_size.zw * (coord as float2)
+        let depths = float4(
+            occlusion.tex_occlusion_depth_in[source as int2]
+            occlusion.tex_occlusion_depth_in[(source + float2(1.0, 0.0)) as int2]
+            occlusion.tex_occlusion_depth_in[(source + float2(0.0, 1.0)) as int2]
+            occlusion.tex_occlusion_depth_in[(source + float2(1.0, 1.0)) as int2]
+        )
+
+        // find and return max depth
+        max_depth = max(max(depths.x, depths.y), max(depths.z, depths.w))
+
+        occlusion.tex_occlusion_depth_out[coord] = float4(max_depth, 0.0, 0.0, 1.0) as texel[.r32_float]

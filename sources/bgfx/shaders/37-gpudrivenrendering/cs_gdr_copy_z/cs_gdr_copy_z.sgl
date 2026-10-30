@@ -1,0 +1,18 @@
+// Translated to SGL from bgfx examples/37-gpudrivenrendering/cs_gdr_copy_z.sc.
+// Copyright 2018 Kostas Anagnostou. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding params:
+    input_rt_size: float4
+
+binding occlusion:
+    @unfilterable tex_occlusion_depth: texture_2d[float4]
+    tex_occlusion_depth_out: out image_2d[.r32_float]
+
+@compute(16, 16) fun main(@thread_id id: int3){params, occlusion}:
+    // this shader can be used to both copy a mip over to the output and downscale it
+    let coord = id.xy
+
+    if all((coord as float2) < params.input_rt_size.xy):
+        let max_depth = occlusion.tex_occlusion_depth.load(coord, 0).x
+
+        occlusion.tex_occlusion_depth_out[coord] = float4(max_depth, 0.0, 0.0, 1.0) as texel[.r32_float]

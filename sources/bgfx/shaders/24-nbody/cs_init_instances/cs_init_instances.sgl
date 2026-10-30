@@ -1,0 +1,84 @@
+// Translated to SGL from bgfx examples/24-nbody/cs_init_instances.sc.
+// Copyright 2014 Stanlo Slasinski. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding params:
+    time_step: float
+    // bgfx carries it in a float's bits
+    base_seed: uint
+    initial_speed: float
+    // bgfx carries it in a float's bits
+    initial_shape: uint
+
+binding positions:
+    prev_position: mut buffer[float4]
+    curr_position: mut buffer[float4]
+
+fun rotl(x: uint, r: uint) -> uint => (x << r) | (x >> (32u - r))
+
+fun hash(key: uint, seed: uint) -> uint:
+    let c1: uint = 0xcc9e'2d51
+    let c2: uint = 0x1b87'3593
+
+    let mut k1 = key
+    let mut h1 = seed
+    k1 *= c1
+    k1 = rotl(k1, 15u)
+    k1 *= c2
+
+    h1 ^= k1
+    h1 = rotl(h1, 13u)
+    h1 = h1 * 5u + 0xe654'6b64
+    k1 *= c1
+    k1 = rotl(k1, 15u)
+    k1 *= c2
+    h1 ^= k1
+
+    h1 ^= h1 >> 16u
+    h1 *= 0x85eb'ca6b
+    h1 ^= h1 >> 13u
+    h1 *= 0xc2b2'ae35
+    h1 ^= h1 >> 16u
+
+    return h1
+
+fun random_point_on_sphere(id: uint, seed: uint) -> float3:
+    let u = uint2(hash(id, seed + 0u), hash(id, seed + 1u))
+    let v = float2.from_bits((u >> 9u) | 0x3f80'0000) - 1.0
+
+    let lambda = v.x * 3.14159 * 2.0
+    let phi = acos(2.0 * v.y - 1.0) - 3.14159 / 2.0
+
+    return float3(cos(lambda) * cos(phi), sin(phi), sin(lambda) * cos(phi))
+
+@compute(512) fun main(@thread_id id: int3){params, positions}:
+    let gid = id.x as uint
+
+    let mut position = float3(0.0)
+    if params.initial_shape == 0u:
+        position = float3(0.0)
+    else if params.initial_shape == 1u:
+        position = 20.0 * random_point_on_sphere(gid, params.base_seed * 7u)
+    else if params.initial_shape == 2u:
+        let u = uint3(
+            hash(gid, params.base_seed * 7u + 0u)
+            hash(gid, params.base_seed * 7u + 1u)
+            hash(gid, params.base_seed * 7u + 2u)
+        )
+        position = 20.0 * (float3.from_bits((u >> 9u) | uint3(0x4000'0000)) - 3.0)
+    else:
+        let u = uint3(
+            hash(gid, params.base_seed * 7u + 0u)
+            hash(gid, params.base_seed * 7u + 1u)
+            hash(gid, params.base_seed * 7u + 2u)
+        )
+        let v = 3.14159 * 2.0 * (float3.from_bits((u >> 9u) | uint3(0x3f80'0000)) - 1.0)
+        position = float3(
+            20.0 * cos(v.x) + 3.0 * cos(v.y) * cos(v.x)
+            3.0 * sin(v.y)
+            20.0 * sin(v.x) + 3.0 * cos(v.y) * sin(v.x)
+        )
+
+    let velocity = params.initial_speed * random_point_on_sphere(gid, params.base_seed * 7u + 3u)
+
+    positions.prev_position[id.x] = float4(..(position - velocity * params.time_step), 0.0)
+    positions.curr_position[id.x] = float4(..position, 0.0)

@@ -1,0 +1,95 @@
+// Translated to SGL from bgfx examples/28-wireframe/fs_wf_mesh.sc.
+// Copyright 2016 Dario Manesku. BSD-2-Clause: sources/bgfx/LICENSE.
+
+// bgfx's u_params[3], one member per define of uniforms.sh
+binding params:
+    cam_pos: float3
+    unused0: float
+    wf_color: float3
+    wf_opacity: float
+    draw_edges: float
+    wf_thickness: float
+    wf_stride: float
+
+struct varyings:
+    @position position: hpos4
+    view: float3
+    bc: float3
+    normal: float3
+
+@pixel struct target:
+    color: float4
+
+// sqrt( 1/PI)/2
+const k01 = 0.2820947918
+// sqrt( 3/PI)/2
+const k02 = 0.4886025119
+// sqrt(15/PI)/2
+const k03 = 1.0925484306
+// sqrt( 5/PI)/4
+const k04 = 0.3153915652
+// sqrt(15/PI)/4
+const k05 = 0.5462742153
+
+fun eval_sh(dir: float3) -> float3:
+    let sh_env: float3[9] = [
+        // Band 0
+        float3(0.967757057878229854, 0.976516067990363390, 0.891218272348969998),
+        // Band 1
+        float3(-0.384163503608655643, -0.423492289131209787, -0.425532726148547868),
+        float3(0.055906294587354334, 0.056627436881069373, 0.069969936396987467),
+        float3(0.120985157386215209, 0.119297994074027414, 0.117111965829213599),
+        // Band 2
+        float3(-0.176711633774331106, -0.170331404095516392, -0.151345020570876621),
+        float3(-0.124682114349692147, -0.119340785411183953, -0.096300354204368860),
+        float3(0.001852378550138503, -0.032592784164597745, -0.088204495001329680),
+        float3(0.296365482782109446, 0.281268696656263029, 0.243328223888495510),
+        float3(-0.079826665303240341, -0.109340956251195970, -0.157208859664677764)
+    ]
+
+    let nn = dir.zxy
+
+    let sh: float[9] = [
+        k01,
+        -k02 * nn.y,
+        k02 * nn.z,
+        -k02 * nn.x,
+        k03 * nn.y * nn.x,
+        -k03 * nn.y * nn.z,
+        k04 * (3.0 * nn.z * nn.z - 1.0),
+        -k03 * nn.x * nn.z,
+        k05 * (nn.x * nn.x - nn.y * nn.y)
+    ]
+
+    let mut rgb = float3(0.0)
+    rgb += sh_env[0] * sh[0] * 1.0
+    rgb += sh_env[1] * sh[1] * 2.0 / 2.5
+    rgb += sh_env[2] * sh[2] * 2.0 / 2.5
+    rgb += sh_env[3] * sh[3] * 2.0 / 2.5
+    rgb += sh_env[4] * sh[4] * 1.0 / 2.5
+    rgb += sh_env[5] * sh[5] * 0.5
+    rgb += sh_env[6] * sh[6] * 0.5
+    rgb += sh_env[7] * sh[7] * 0.5
+    rgb += sh_env[8] * sh[8] * 0.5
+    return rgb
+
+@pixel fun main(p: varyings){params} -> target:
+    let nn = normalize(p.normal)
+    let mut col = eval_sh(nn)
+
+    if 0.0 != params.draw_edges:
+        let wf_color = params.wf_color
+        let wf_opacity = params.wf_opacity
+        let thickness = params.wf_thickness
+
+        let fw = abs(ddx(p.bc)) + abs(ddy(p.bc))
+        let val = smoothstep(float3(0.0), fw * thickness, p.bc)
+        // gets to 0.0 when close to edges
+        let edge = min(min(val.x, val.y), val.z)
+
+        let edge_col = mix(col, wf_color, wf_opacity)
+        col = mix(edge_col, col, edge)
+
+    return {
+        color = float4(..col, 1.0)
+    }

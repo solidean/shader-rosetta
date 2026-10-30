@@ -1,0 +1,77 @@
+// Translated to SGL from bgfx examples/13-stencil/fs_stencil_color_lighting.sc.
+// Copyright 2013-2014 Dario Manesku. BSD-2-Clause: sources/bgfx/LICENSE.
+
+const max_num_lights = 5
+
+binding view:
+    view: mat4
+
+binding params:
+    ambient_pass: float
+    lighting_pass: float
+    light_count: float
+    light_index: float
+    ambient: float4
+    diffuse: float4
+    color: float4
+    specular: float3
+    shininess: float
+    light_pos_radius: float4[max_num_lights]
+    light_rgb_inner_r: float4[max_num_lights]
+
+struct varyings:
+    @position position: hpos4
+    normal: float3
+    view: float3
+
+@pixel struct target:
+    color: float4
+
+fun blinn(light_dir: float3, normal: float3, view_dir: float3) -> float2:
+    let ndotl = dot(normal, light_dir)
+    let reflected = 2.0 * ndotl * normal - light_dir
+    let rdotv = dot(reflected, view_dir)
+    return float2(ndotl, rdotv)
+
+fun lit(ndotl: float, rdotv: float, m: float) -> float4:
+    let diff = max(0.0, ndotl)
+    let spec = step(0.0, ndotl) * pow(max(0.0, rdotv), m)
+    return float4(1.0, diff, spec, 1.0)
+
+fun calc_light(idx: int, view_pos: float3, normal: float3, view_dir: float3){view, params} -> float3:
+    let light_pos = (view.view * float4(..params.light_pos_radius[idx].xyz, 1.0)).xyz
+    let to_light = light_pos - view_pos
+    let light_dir = normalize(to_light)
+
+    let bln = blinn(light_dir, normal, view_dir)
+    let lc = lit(bln.x, bln.y, params.shininess)
+
+    let dist = max(length(to_light), params.light_pos_radius[idx].w)
+    let attn = 250.0 * pow(dist, -2.0)
+    return (lc.y * params.diffuse.xyz + lc.z * params.specular) * params.light_rgb_inner_r[idx].xyz * attn
+
+fun to_gamma(c: float3) => pow(abs(c), float3(1.0 / 2.2))
+
+@pixel fun main(v: varyings){view, params} -> target:
+    let normal = normalize(v.normal)
+    let view_dir = -normalize(v.view)
+
+    let ambient_color = params.ambient.xyz * params.ambient_pass
+
+    let mut light_color = float3(0.0)
+    for i in 0 ..< max_num_lights:
+        let mut condition = 0.0
+        if params.light_count > 1.0:
+            condition = 1.0 - step(params.light_count, i as float)
+        else:
+            condition = select(i as float == params.light_index, 1.0, 0.0)
+        light_color += calc_light(i, v.view, normal, view_dir) * condition
+    light_color *= params.lighting_pass
+
+    let color = params.color.xyz
+
+    let ambient = to_gamma(ambient_color * color)
+    let diffuse = to_gamma(light_color * color)
+    return {
+        color = float4(..clamp(ambient + diffuse, float3(0.0), float3(1.0)), params.color.w)
+    }

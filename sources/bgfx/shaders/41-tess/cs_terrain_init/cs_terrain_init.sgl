@@ -1,0 +1,56 @@
+// Translated to SGL from bgfx examples/41-tess/cs_terrain_init.sc.
+// Copyright 2010-2026 Branimir Karadzic, bgfx's line, since the original names none. BSD-2-Clause: sources/bgfx/LICENSE.
+
+const update_indirect_value_divide = 32u
+
+binding params:
+    // bgfx reads it as int(u_params[1].x)
+    gpu_subd: float
+
+// bgfx's own uniform, which offsets every indexed draw's first index
+binding bgfx:
+    // bgfx carries it in a float's bits
+    indirect_arg_base: uint
+
+binding terrain:
+    subd_buffer_out: mut buffer[uint]
+    culled_subd_buffer: mut buffer[uint]
+    indirect_buffer: mut buffer[uint4]
+    atomic_counter_buffer: mut buffer[atomic[uint]]
+    subd_buffer_in: mut buffer[uint]
+
+fun draw_indexed_indirect(offset: uint, num_indices: uint, num_instances: uint, start_index: uint, start_vertex: uint, start_instance: uint){terrain, bgfx}:
+    terrain.indirect_buffer[offset * 2u + 0u] = uint4(num_indices, num_instances, bgfx.indirect_arg_base + start_index, start_vertex)
+    terrain.indirect_buffer[offset * 2u + 1u] = uint4(start_instance, 0u, 0u, 0u)
+
+fun dispatch_indirect(offset: uint, num_x: uint, num_y: uint, num_z: uint){terrain}:
+    terrain.indirect_buffer[offset * 2u + 0u] = uint4(num_x, num_y, num_z, 0u)
+
+@compute(1) fun main(){params, bgfx, terrain}:
+    let gpu_subd = params.gpu_subd as int
+    let mut subd = (6 << (2 * gpu_subd - 1)) as uint
+
+    if (2 * gpu_subd - 1) <= 0:
+        subd = 3u
+
+    draw_indexed_indirect(0u, subd, 0u, 0u, 0u, 0u)
+    dispatch_indirect(1u, 2u / update_indirect_value_divide + 1u, 1u, 1u)
+
+    terrain.subd_buffer_out[0] = 0u
+    terrain.subd_buffer_out[1] = 1u
+    terrain.subd_buffer_out[2] = 1u
+    terrain.subd_buffer_out[3] = 1u
+
+    terrain.culled_subd_buffer[0] = 0u
+    terrain.culled_subd_buffer[1] = 1u
+    terrain.culled_subd_buffer[2] = 1u
+    terrain.culled_subd_buffer[3] = 1u
+
+    terrain.subd_buffer_in[0] = 0u
+    terrain.subd_buffer_in[1] = 1u
+    terrain.subd_buffer_in[2] = 1u
+    terrain.subd_buffer_in[3] = 1u
+
+    terrain.atomic_counter_buffer[0].exchange(0u)
+    terrain.atomic_counter_buffer[1].exchange(0u)
+    terrain.atomic_counter_buffer[2].exchange(2u)

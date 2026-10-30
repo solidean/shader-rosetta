@@ -1,0 +1,28 @@
+// Translated to SGL from bgfx examples/41-tess/fs_terrain_render.sc.
+// Copyright 2010-2026 Branimir Karadzic, bgfx's line, since the original names none. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding params:
+    dmap_factor: float
+
+binding maps:
+    // slope map
+    smap: texture_2d[float4]
+    sampler s_smap:
+        filter = .linear
+        address = .clamp_edge
+
+struct varyings:
+    @position position: hpos4
+    texcoord0: float2
+
+@pixel struct target:
+    color: float4
+
+@pixel fun main(v: varyings){params, maps} -> target:
+    let s = maps.smap.sample(v.texcoord0, maps.s_smap).xy * params.dmap_factor
+    let n = normalize(float3(..(-s), 1.0))
+    let d = clamp(n.z, 0.0, 1.0) / 3.14159
+    let r = float3(d, d, d)
+    return {
+        color = float4(..r, 1.0)
+    }

@@ -1,0 +1,29 @@
+// Translated to SGL from bgfx examples/09-hdr/fs_hdr_skybox.sc.
+// Copyright 2011-2026 Branimir Karadzic. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding params:
+    mtx: mat4
+
+binding material:
+    tex_cube: texture_cube[float4]
+    sampler s_tex:
+        filter = .linear
+
+struct varyings:
+    @position position: hpos4
+    texcoord0: float2
+
+@pixel struct target:
+    color: float4
+
+fun encode_rgbe8(rgb: float3) -> float4:
+    let max_component = max(max(rgb.x, rgb.y), rgb.z)
+    let exponent = ceil(log2(max_component))
+    return float4(..(rgb / exp2(exponent)), (exponent + 128.0) / 255.0)
+
+@pixel fun main(p: varyings){params, material} -> target:
+    let dir = float3(..(p.texcoord0 * 2.0 - 1.0), 1.0)
+    let dir = normalize((params.mtx * float4(..dir, 0.0)).xyz)
+    return {
+        color = encode_rgbe8(material.tex_cube.sample(dir, material.s_tex).xyz)
+    }

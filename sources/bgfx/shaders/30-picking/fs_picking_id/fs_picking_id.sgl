@@ -1,0 +1,21 @@
+// Translated to SGL from bgfx examples/30-picking/fs_picking_id.sc.
+// Copyright 2011-2026 Branimir Karadzic. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding params:
+    id: float4
+
+struct varyings:
+    @position position: hpos4
+    pos: float3
+    view: float3
+    normal: float3
+    color0: float4
+
+@pixel struct target:
+    color: float4
+
+@pixel fun main(p: varyings){params} -> target:
+    // This is dumb, should use u8 texture
+    return {
+        color = float4(..params.id.xyz, 1.0)
+    }

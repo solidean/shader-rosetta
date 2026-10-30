@@ -1,0 +1,53 @@
+// Translated to SGL from bgfx examples/36-sky/fs_sky_landscape.sc.
+// Copyright 2017 Stanislav Pidhorskyi. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding material:
+    tex_lightmap: texture_2d[float4]
+    sampler s_tex:
+        filter = .linear
+
+binding params:
+    sun_direction: float4
+    sun_luminance: float4
+    sky_luminance: float4
+    parameters: float4
+
+struct varyings:
+    @position position: hpos4
+    normal: float3
+    texcoord0: float2
+
+@pixel struct target:
+    color: float4
+
+// Interleaved gradient noise (better for Metal)
+// Reference: http://www.iryoku.com/next-generation-post-processing-in-call-of-duty-advanced-warfare
+fun interleaved_gradient_noise(screen_pos: float2, temporal_factor: float) -> float:
+    let magic = float3(0.06711056, 0.00583715, 52.9829189)
+    let coord = screen_pos + fract(temporal_factor) * float2(13.0)
+    return fract(magic.z * fract(dot(coord, magic.xy)))
+
+fun to_linear(rgb: float) => pow(abs(rgb), 2.2)
+
+// shaderlib.sh
+fun to_gamma(rgb: float3) => pow(abs(rgb), float3(1.0 / 2.2))
+
+@pixel fun main(p: varyings){material, params} -> target:
+    let normal = normalize(p.normal)
+
+    let occulsion = to_linear(material.tex_lightmap.sample(p.texcoord0, material.s_tex).x)
+
+    let sky_direction = float3(0.0, 0.0, 1.0)
+
+    let diffuse_sun = max(0.0, dot(normal, normalize(params.sun_direction.xyz)))
+    let diffuse_sky = 1.0 + 0.5 * dot(normal, sky_direction)
+
+    let mut color = diffuse_sun * params.sun_luminance.xyz + (diffuse_sky * params.sky_luminance.xyz + 0.01) * occulsion
+    color *= 0.5
+
+    let mut dither = interleaved_gradient_noise(p.position.xy, params.parameters.w)
+    dither = (dither - 0.5) / 255.0
+
+    return {
+        color = float4(..(to_gamma(color * params.parameters.z) + float3(dither)), 1.0)
+    }

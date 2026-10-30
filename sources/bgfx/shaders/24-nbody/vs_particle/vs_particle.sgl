@@ -1,0 +1,29 @@
+// Translated to SGL from bgfx examples/24-nbody/vs_particle.sc.
+// Copyright 2014 Stanlo Slasinski. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding view:
+    view: mat4
+    proj: mat4
+
+binding params:
+    particle_size: float
+
+@vertex struct vertex_input:
+    position: float2
+    @per_instance data0: float4
+
+struct varyings:
+    @position position: hpos4
+    tex_coord: float3
+
+@vertex fun main(v: vertex_input){view, params} -> varyings:
+    let eye = (view.view * float4(..v.data0.xyz, 1.0)).xyz
+    let up = normalize(cross(eye, float3(1.0, 0.0, 0.0)))
+    let right = normalize(cross(up, eye))
+    let size = params.particle_size
+    let position = eye + size * right * v.position.x + size * up * v.position.y
+
+    return {
+        position = view.proj * pos3(..position)
+        tex_coord = float3(..v.position, v.data0.w)
+    }

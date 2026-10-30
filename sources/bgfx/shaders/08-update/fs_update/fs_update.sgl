@@ -1,0 +1,19 @@
+// Translated to SGL from bgfx examples/08-update/fs_update.sc.
+// Copyright 2011-2026 Branimir Karadzic. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding material:
+    tex_cube: texture_cube[float4]
+    sampler s_tex:
+        filter = .linear
+
+struct varyings:
+    @position position: hpos4
+    texcoord0: float3
+
+@pixel struct target:
+    color: float4
+
+@pixel fun main(v: varyings){material} -> target:
+    return {
+        color = material.tex_cube.sample(v.texcoord0, material.s_tex)
+    }

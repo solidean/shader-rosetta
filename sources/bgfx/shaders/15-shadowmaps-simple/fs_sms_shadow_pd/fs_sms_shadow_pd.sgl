@@ -1,0 +1,27 @@
+// Translated to SGL from bgfx examples/15-shadowmaps-simple/fs_sms_shadow_pd.sc.
+// Copyright 2013-2014 Dario Manesku. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding params:
+    // for GL, maps depth values into [0, 1]
+    depth_scale: float
+    depth_offset: float
+
+struct varyings:
+    @position position: hpos4
+    clip_position: float4
+
+@pixel struct target:
+    color: float4
+
+fun pack_float_to_rgba(value: float) -> float4:
+    let shift = float4(255.0 * 255.0 * 255.0, 255.0 * 255.0, 255.0, 1.0)
+    let mask = float4(0.0, 1.0 / 255.0, 1.0 / 255.0, 1.0 / 255.0)
+    let mut comp = fract(value * shift)
+    comp -= comp.xxyz * mask
+    return comp
+
+@pixel fun main(v: varyings){params} -> target:
+    let depth = v.clip_position.z / v.clip_position.w * params.depth_scale + params.depth_offset
+    return {
+        color = pack_float_to_rgba(depth)
+    }

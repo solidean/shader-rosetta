@@ -1,0 +1,45 @@
+// Translated to SGL from bgfx examples/33-pom/vs_pom.sc.
+// The original carries no copyright line; bgfx: Copyright 2010-2026 Branimir Karadzic. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding view:
+    model: mat4
+    view_proj: mat4
+
+binding params:
+    norm_mtx: mat4
+    light_pos: float4
+
+@vertex struct vertex_input:
+    position: pos3
+    tangent: float3
+    bitangent: float3
+    texcoord0: float2
+
+struct varyings:
+    @position position: hpos4
+    texcoord0: float2
+    ts_light_pos: float3
+    ts_view_pos: float3
+    ts_frag_pos: float3
+
+@vertex fun main(v: vertex_input){view, params} -> varyings:
+    let wpos = (view.model * v.position).xyz
+
+    let tangent = v.tangent * 2.0 - 1.0
+    let bitangent = v.bitangent * 2.0 - 1.0
+    let normal = cross(tangent, bitangent)
+
+    let t = normalize((params.norm_mtx * float4(..tangent, 0.0)).xyz)
+    let b = normalize((params.norm_mtx * float4(..bitangent, 0.0)).xyz)
+    let n = normalize((params.norm_mtx * float4(..normal, 0.0)).xyz)
+    let tbn = mat3(t, b, n)
+
+    // bgfx's mul(v, m) is the row vector times the matrix
+    return {
+        position = view.view_proj * pos3(..wpos)
+        texcoord0 = v.texcoord0
+        ts_light_pos = transpose(tbn) * params.light_pos.xyz
+        // our camera is always at the origin
+        ts_view_pos = transpose(tbn) * float3(0.0)
+        ts_frag_pos = transpose(tbn) * wpos
+    }

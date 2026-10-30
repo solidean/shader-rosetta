@@ -62,17 +62,21 @@ def main() -> None:
         results = [r for r in pool.map(lambda d: _check(args.sgl.resolve(), d), shader_dirs) if r]
 
     clean = [r for r in results if not any(r["targets"].values())]
-    # A kind counts once per shader however many targets and lines report it: the question is how many shaders it blocks.
+    # A gap counts once per shader however many targets and lines report it: the question is how many shaders it blocks.
+    # `unsupported-yet` alone says little, so a gap is its kind and its detail.
     blocking: dict[str, set[str]] = collections.defaultdict(set)
-    details: dict[str, collections.Counter] = collections.defaultdict(collections.Counter)
-    target_only: dict[str, collections.Counter] = collections.defaultdict(collections.Counter)
     for r in results:
-        for target, diagnostics in r["targets"].items():
+        for diagnostics in r["targets"].values():
             for d in diagnostics:
-                blocking[d["kind"]].add(r["shader"])
-                details[d["kind"]][(d.get("detail") or "").strip()] += 1
-                if any(not r["targets"][t] for t in TARGETS):
-                    target_only[d["kind"]][target] += 1
+                blocking[f"`{d['kind']}`: {(d.get('detail') or '').strip()[:120]}"].add(r["shader"])
+    # A shader the spec has no spelling for compiles through a stand-in, which a `// gap:` comment marks.
+    workarounds: dict[str, set[str]] = collections.defaultdict(set)
+    for r in results:
+        source = ROOT / "sources" / r["shader"] / f"{Path(r['shader']).name}.sgl"
+        for line in source.read_text(encoding="utf-8").splitlines():
+            _, sep, note = line.partition("// gap:")
+            if sep:
+                workarounds[note.strip()[:120]].add(r["shader"])
 
     by_stage = collections.Counter(r["stage"] for r in results)
     print("# SGL coverage\n")
@@ -81,11 +85,18 @@ def main() -> None:
     print(f"{len(clean)} of them compile on every target ({', '.join(TARGETS)}).\n")
     if blocking:
         print("## What blocks the rest\n")
-        print("| diagnostic | shaders | most common detail |")
-        print("|---|---|---|")
-        for kind, shaders in sorted(blocking.items(), key=lambda kv: (-len(kv[1]), kv[0])):
-            detail, _ = details[kind].most_common(1)[0]
-            print(f"| `{kind}` | {len(shaders)} | {detail[:120]} |")
+        print("| gap | shaders |")
+        print("|---|---|")
+        for gap, shaders in sorted(blocking.items(), key=lambda kv: (-len(kv[1]), kv[0])):
+            print(f"| {gap} | {len(shaders)} |")
+        print()
+    if workarounds:
+        print("## What the spec has no spelling for\n")
+        print("Each compiles through a stand-in its `// gap:` comment names.\n")
+        print("| gap | shaders |")
+        print("|---|---|")
+        for gap, shaders in sorted(workarounds.items(), key=lambda kv: (-len(kv[1]), kv[0])):
+            print(f"| {gap} | {', '.join(f'`{s.split('/')[-1]}`' for s in sorted(shaders))} |")
         print()
         print("## Failing shaders\n")
         for r in results:

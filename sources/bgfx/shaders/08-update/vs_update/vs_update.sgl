@@ -1,0 +1,19 @@
+// Translated to SGL from bgfx examples/08-update/vs_update.sc.
+// Copyright 2011-2026 Branimir Karadzic. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding view:
+    model_view_proj: mat4
+
+@vertex struct vertex_input:
+    position: pos3
+    texcoord0: float3
+
+struct varyings:
+    @position position: hpos4
+    texcoord0: float3
+
+@vertex fun main(v: vertex_input){view} -> varyings:
+    return {
+        position = view.model_view_proj * v.position
+        texcoord0 = v.texcoord0
+    }

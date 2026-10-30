@@ -1,0 +1,24 @@
+// Translated to SGL from bgfx examples/37-gpudrivenrendering/fs_gdr_instanced_indirect_rendering.sc.
+// Copyright 2018 Kostas Anagnostou. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding material:
+    color: float4[32]
+
+struct varyings:
+    @position position: hpos4
+    @interpolate(.flat) material_id: float
+
+@pixel struct target:
+    color: float4
+
+@pixel fun main(v: varyings){material} -> target:
+    let color = material.color[v.material_id as uint]
+
+    if color.w < 1.0:
+        // render dithered alpha
+        if ((v.position.x as int) % 2) == ((v.position.y as int) % 2):
+            discard
+
+    return {
+        color = float4(..color.xyz, 1.0)
+    }

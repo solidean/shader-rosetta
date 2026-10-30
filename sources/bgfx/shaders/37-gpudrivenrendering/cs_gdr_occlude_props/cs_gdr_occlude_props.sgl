@@ -1,0 +1,101 @@
+// Translated to SGL from bgfx examples/37-gpudrivenrendering/cs_gdr_occlude_props.sc.
+// Copyright 2018 Kostas Anagnostou. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding view:
+    view_proj: mat4
+
+binding params:
+    input_rt_size: float4
+    culling_config: float4
+
+binding occlusion:
+    @unfilterable tex_occlusion_depth: texture_2d[float4]
+    sampler s_tex_occlusion_depth:
+        filter = .nearest
+    instance_data_in: buffer[float4]
+    drawcall_instance_count: mut buffer[atomic[uint]]
+    instance_predicates: mut buffer[bool32]
+
+@compute(64) fun main(@thread_id id: int3){view, params, occlusion}:
+    let mut predicate = false
+    let gid = id.x as uint
+
+    // make sure that we are not processing more instances than available
+    if gid < (params.culling_config.x as uint):
+        // get the bounding box for this instance
+        let bbox_min = occlusion.instance_data_in[2u * gid]
+        let bbox_max = occlusion.instance_data_in[2u * gid + 1u].xyz
+
+        let drawcall_id = bbox_min.w as int
+
+        // adapted from http://blog.selfshadow.com/publications/practical-visibility/
+        let bbox_size = bbox_max.xyz - bbox_min.xyz
+
+        let box_corners = [
+            bbox_min.xyz
+            bbox_min.xyz + float3(bbox_size.x, 0.0, 0.0)
+            bbox_min.xyz + float3(0.0, bbox_size.y, 0.0)
+            bbox_min.xyz + float3(0.0, 0.0, bbox_size.z)
+            bbox_min.xyz + float3(..bbox_size.xy, 0.0)
+            bbox_min.xyz + float3(0.0, ..bbox_size.yz)
+            bbox_min.xyz + float3(bbox_size.x, 0.0, bbox_size.z)
+            bbox_min.xyz + bbox_size.xyz
+        ]
+        let mut min_z = 1.0
+        let mut min_xy = float2(1.0, 1.0)
+        let mut max_xy = float2(0.0, 0.0)
+
+        @unroll
+        for i in 0 ..< 8:
+            // transform world space aabox to ndc
+            let mut clip_pos = view.view_proj * float4(..box_corners[i], 1.0)
+
+            clip_pos.z = max(clip_pos.z, 0.0)
+
+            clip_pos.xyz = clip_pos.xyz / clip_pos.w
+
+            clip_pos.xy = clamp(clip_pos.xy, float2(-1.0), float2(1.0))
+            clip_pos.xy = clip_pos.xy * float2(0.5, -0.5) + float2(0.5, 0.5)
+
+            min_xy = min(clip_pos.xy, min_xy)
+            max_xy = max(clip_pos.xy, max_xy)
+
+            min_z = saturate(min(min_z, clip_pos.z))
+
+        let box_uvs = float4(..min_xy, ..max_xy)
+
+        // calculate hi-z buffer mip
+        let size = ((max_xy - min_xy) * params.input_rt_size.xy) as int2
+        let mut mip = ceil(log2(max(size.x, size.y) as float))
+
+        mip = clamp(mip, 0.0, params.culling_config.z)
+
+        // texel footprint for the lower (finer-grained) level
+        let level_lower = max(mip - 1.0, 0.0)
+        let scale = float2(exp2(-level_lower))
+        let a = floor(box_uvs.xy * scale)
+        let b = ceil(box_uvs.zw * scale)
+        let dims = b - a
+
+        // use the lower level if we only touch <= 2 texels in both dimensions
+        if dims.x <= 2.0 and dims.y <= 2.0:
+            mip = level_lower
+
+        // load depths from high z buffer
+        let depth = float4(
+            occlusion.tex_occlusion_depth.sample(box_uvs.xy, occlusion.s_tex_occlusion_depth, level = mip).x
+            occlusion.tex_occlusion_depth.sample(box_uvs.zy, occlusion.s_tex_occlusion_depth, level = mip).x
+            occlusion.tex_occlusion_depth.sample(box_uvs.xw, occlusion.s_tex_occlusion_depth, level = mip).x
+            occlusion.tex_occlusion_depth.sample(box_uvs.zw, occlusion.s_tex_occlusion_depth, level = mip).x
+        )
+
+        // find the max depth
+        let max_depth = max(max(depth.x, depth.y), max(depth.z, depth.w))
+
+        if min_z <= max_depth:
+            predicate = true
+
+            // increase instance count for this particular prop type
+            occlusion.drawcall_instance_count[drawcall_id].add(1u)
+
+    occlusion.instance_predicates[id.x] = predicate as bool32

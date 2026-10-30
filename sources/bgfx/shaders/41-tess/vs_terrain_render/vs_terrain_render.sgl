@@ -1,0 +1,103 @@
+// Translated to SGL from bgfx examples/41-tess/vs_terrain_render.sc, with terrain_common.sh and isubd.sh.
+// Copyright 2010-2026 Branimir Karadzic, bgfx's line, since the original names none. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding view:
+    model_view_proj: mat4
+
+binding params:
+    dmap_factor: float
+
+binding terrain:
+    // displacement map
+    dmap: texture_2d[float4]
+    sampler s_dmap:
+        filter = .linear
+        address = .clamp_edge
+    culled_subd_buffer: buffer[uint]
+    vertex_buffer: buffer[float4]
+    index_buffer: buffer[uint]
+
+@vertex struct vertex_input:
+    texcoord0: float2
+
+struct varyings:
+    @position position: hpos4
+    texcoord0: float2
+
+// ---- isubd.sh ----
+
+// barycentric interpolation
+fun berp(v: float4[3], u: float2) -> float4 => v[0] + u.x * (v[1] - v[0]) + u.y * (v[2] - v[0])
+
+// get xform from bit value
+fun bit_to_xform(bit: uint) -> mat3:
+    let b = bit as float
+    let c = 1.0 - b
+
+    let c1 = float3(0.0, c, b)
+    let c2 = float3(0.5, b, 0.0)
+    let c3 = float3(0.5, 0.0, c)
+
+    return mat3(c1, c2, c3)
+
+// get xform from key
+fun key_to_xform(key: uint) -> mat3:
+    let c1 = float3(1.0, 0.0, 0.0)
+    let c2 = float3(0.0, 1.0, 0.0)
+    let c3 = float3(0.0, 0.0, 1.0)
+
+    let mut xf = mat3(c1, c2, c3)
+
+    let mut k = key
+    while k > 1u:
+        xf = xf * bit_to_xform(k & 1u)
+        k = k >> 1u
+
+    return xf
+
+// gap: SGL has no 3x4 matrix, so mul(xf, mtxFromRows(rows)) goes column by column, and mtxGetRow reads its rows back
+fun xform_rows(xf: mat3, rows: float4[3]) -> float4[3]:
+    let c0 = xf * float3(rows[0].x, rows[1].x, rows[2].x)
+    let c1 = xf * float3(rows[0].y, rows[1].y, rows[2].y)
+    let c2 = xf * float3(rows[0].z, rows[1].z, rows[2].z)
+    let c3 = xf * float3(rows[0].w, rows[1].w, rows[2].w)
+    return [float4(c0.x, c1.x, c2.x, c3.x), float4(c0.y, c1.y, c2.y, c3.y), float4(c0.z, c1.z, c2.z, c3.z)]
+
+// subdivision routine (vertex position only)
+fun subd(key: uint, v_in: float4[3]) -> float4[3]:
+    let xf = key_to_xform(key)
+    return xform_rows(xf, v_in)
+
+// ---- terrain_common.sh ----
+
+// displacement map
+fun dmap(pos: float2){params, terrain} -> float:
+    return terrain.dmap.sample(pos * 0.5 + 0.5, terrain.s_dmap, level = 0.0).x * params.dmap_factor
+
+@vertex fun main(a: vertex_input, @instance_index instance: int){view, params, terrain} -> varyings:
+    // get threadID (each key is associated to a thread)
+    let thread_id = instance
+
+    // get coarse triangle associated to the key
+    let prim_id = terrain.culled_subd_buffer[thread_id * 2]
+
+    let v_in = [
+        terrain.vertex_buffer[terrain.index_buffer[prim_id * 3u]]
+        terrain.vertex_buffer[terrain.index_buffer[prim_id * 3u + 1u]]
+        terrain.vertex_buffer[terrain.index_buffer[prim_id * 3u + 2u]]
+    ]
+
+    // compute sub-triangle associated to the key
+    let key = terrain.culled_subd_buffer[thread_id * 2 + 1]
+
+    let v = subd(key, v_in)
+
+    // compute vertex location
+    let mut final_vertex = berp(v, a.texcoord0)
+
+    final_vertex.z += dmap(final_vertex.xy)
+
+    return {
+        position = hpos4(..(view.model_view_proj * final_vertex))
+        texcoord0 = final_vertex.xy * 0.5 + 0.5
+    }

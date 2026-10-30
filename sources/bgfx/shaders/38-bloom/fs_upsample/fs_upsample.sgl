@@ -1,0 +1,40 @@
+// Translated to SGL from bgfx examples/38-bloom/fs_upsample.sc.
+// Copyright 2018 Eric Arnebäck. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding params:
+    pixel_size: float4
+    intensity: float4
+
+binding material:
+    tex: texture_2d[float4]
+    sampler s_tex:
+        filter = .linear
+
+struct varyings:
+    @position position: hpos4
+    texcoord0: float2
+
+@pixel struct target:
+    color: float4
+
+@pixel fun main(p: varyings){params, material} -> target:
+    let half_pixel = params.pixel_size.xy
+    let uv = p.texcoord0.xy
+
+    let mut sum = float4(0.0)
+
+    sum += (2.0 / 16.0) * material.tex.sample(uv + float2(-half_pixel.x, 0.0), material.s_tex)
+    sum += (2.0 / 16.0) * material.tex.sample(uv + float2(0.0, half_pixel.y), material.s_tex)
+    sum += (2.0 / 16.0) * material.tex.sample(uv + float2(half_pixel.x, 0.0), material.s_tex)
+    sum += (2.0 / 16.0) * material.tex.sample(uv + float2(0.0, -half_pixel.y), material.s_tex)
+
+    sum += (1.0 / 16.0) * material.tex.sample(uv + float2(-half_pixel.x, -half_pixel.y), material.s_tex)
+    sum += (1.0 / 16.0) * material.tex.sample(uv + float2(-half_pixel.x, half_pixel.y), material.s_tex)
+    sum += (1.0 / 16.0) * material.tex.sample(uv + float2(half_pixel.x, -half_pixel.y), material.s_tex)
+    sum += (1.0 / 16.0) * material.tex.sample(uv + float2(half_pixel.x, half_pixel.y), material.s_tex)
+
+    sum += (4.0 / 16.0) * material.tex.sample(uv, material.s_tex)
+
+    return {
+        color = params.intensity.x * sum
+    }

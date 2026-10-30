@@ -1,0 +1,124 @@
+// Translated to SGL from bgfx examples/18-ibl/fs_ibl_mesh.sc.
+// Copyright 2014-2016 Dario Manesku. BSD-2-Clause: sources/bgfx/LICENSE.
+
+// bgfx's u_params[12], one member per define of uniforms.sh
+binding params:
+    mtx0: float4
+    mtx1: float4
+    mtx2: float4
+    mtx3: float4
+    glossiness: float
+    reflectivity: float
+    exposure: float
+    bg_type: float
+    metal_or_spec: float
+    unused: float3
+    do_diffuse: float
+    do_specular: float
+    do_diffuse_ibl: float
+    do_specular_ibl: float
+    cam_pos: float3
+    unused7: float
+    rgb_diff: float4
+    rgb_spec: float4
+    light_dir: float3
+    unused10: float
+    light_col: float3
+    unused11: float
+
+binding environment:
+    tex_cube: texture_cube[float4]
+    tex_cube_irr: texture_cube[float4]
+    sampler s_tex:
+        filter = .linear
+
+struct varyings:
+    @position position: hpos4
+    view: float3
+    normal: float3
+
+@pixel struct target:
+    color: float4
+
+fun calc_fresnel(cspec: float3, dot: float, strength: float) -> float3:
+    return cspec + (1.0 - cspec) * pow(1.0 - dot, 5.0) * strength
+
+fun calc_lambert(cdiff: float3, ndotl: float) -> float3:
+    return cdiff * ndotl
+
+fun calc_blinn(cspec: float3, ndoth: float, ndotl: float, spec_pwr: float) -> float3:
+    let norm = (spec_pwr + 8.0) * 0.125
+    let brdf = pow(ndoth, spec_pwr) * ndotl * norm
+    return cspec * brdf
+
+fun spec_pwr(gloss: float) => exp2(10.0 * gloss + 2.0)
+
+// shaderlib.sh
+fun fix_cube_lookup(v: float3, lod: float, top_level_cube_size: float) -> float3:
+    let ax = abs(v.x)
+    let ay = abs(v.y)
+    let az = abs(v.z)
+    let vmax = max(max(ax, ay), az)
+    let scale = 1.0 - exp2(lod) / top_level_cube_size
+    let mut r = v
+    if ax != vmax => r.x *= scale
+    if ay != vmax => r.y *= scale
+    if az != vmax => r.z *= scale
+    return r
+
+fun to_linear(rgb: float3) => pow(abs(rgb), float3(2.2))
+
+fun to_filmic(rgb: float3) -> float3:
+    let c = max(float3(0.0), rgb - 0.004)
+    return (c * (6.2 * c + 0.5)) / (c * (6.2 * c + 1.7) + 0.06)
+
+@pixel fun main(p: varyings){params, environment} -> target:
+    // Light.
+    let ld = normalize(params.light_dir)
+    let clight = params.light_col
+
+    // Input.
+    let nn = normalize(p.normal)
+    let vv = normalize(p.view)
+    let hh = normalize(vv + ld)
+
+    let ndotv = clamp(dot(nn, vv), 0.0, 1.0)
+    let ndotl = clamp(dot(nn, ld), 0.0, 1.0)
+    let ndoth = clamp(dot(nn, hh), 0.0, 1.0)
+    let hdotv = clamp(dot(hh, vv), 0.0, 1.0)
+
+    // Material params.
+    let in_albedo = params.rgb_diff.xyz
+    let in_reflectivity = params.reflectivity
+    let in_gloss = params.glossiness
+
+    // Reflection: the metalness workflow, else the specular one.
+    let refl = if 0.0 == params.metal_or_spec => mix(float3(0.04), in_albedo, in_reflectivity) else params.rgb_spec.xyz * float3(in_reflectivity)
+    let albedo = in_albedo * (1.0 - in_reflectivity)
+    let dir_fresnel = calc_fresnel(refl, hdotv, in_gloss)
+    let env_fresnel = calc_fresnel(refl, ndotv, in_gloss)
+
+    let lambert = params.do_diffuse * calc_lambert(albedo * (1.0 - dir_fresnel), ndotl)
+    let blinn = params.do_specular * calc_blinn(dir_fresnel, ndoth, ndotl, spec_pwr(in_gloss))
+    let direct = (lambert + blinn) * clight
+
+    // Mip levels [1..6] for radiance; the environment is filtered with cmft, gloss scale 10 and bias 2 as in spec_pwr.
+    let mip = 1.0 + 5.0 * (1.0 - in_gloss)
+
+    let mtx = mat4(params.mtx0, params.mtx1, params.mtx2, params.mtx3)
+    // the same as -reflect(vv, nn)
+    let vr = 2.0 * ndotv * nn - vv
+    let cube_r = fix_cube_lookup(normalize((mtx * float4(..vr, 0.0)).xyz), mip, 256.0)
+    let cube_n = normalize((mtx * float4(..nn, 0.0)).xyz)
+
+    let radiance = to_linear(environment.tex_cube.sample(cube_r, environment.s_tex, level = mip).xyz)
+    let irradiance = to_linear(environment.tex_cube_irr.sample(cube_n, environment.s_tex).xyz)
+    let env_diffuse = albedo * irradiance * params.do_diffuse_ibl
+    let env_specular = env_fresnel * radiance * params.do_specular_ibl
+    let indirect = env_diffuse + env_specular
+
+    // Color.
+    let color = (direct + indirect) * exp2(params.exposure)
+    return {
+        color = float4(..to_filmic(color), 1.0)
+    }

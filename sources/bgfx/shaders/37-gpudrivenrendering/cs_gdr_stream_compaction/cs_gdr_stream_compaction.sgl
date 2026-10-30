@@ -1,0 +1,121 @@
+// Translated to SGL from bgfx examples/37-gpudrivenrendering/cs_gdr_stream_compaction.sc.
+// Copyright 2018 Kostas Anagnostou. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding params:
+    culling_config: float4
+
+// bgfx's own uniform, which offsets every indexed draw's first index
+binding bgfx:
+    // bgfx carries it in a float's bits
+    indirect_arg_base: uint
+
+binding compaction:
+    // the per drawcall data that is constant (number of indices and offsets to vertex/index buffers)
+    drawcall_const_data: buffer[uint]
+    // instance data for all instances (pre culling)
+    instance_data_in: buffer[float4]
+    // per instance visibility (output of culling pass)
+    instance_predicates: buffer[bool32]
+    // how many instances per drawcall
+    drawcall_instance_count: mut buffer[atomic[uint]]
+    // drawcall data that will drive draw indirect
+    drawcall_data: mut buffer[uint4]
+    // culled instance data
+    instance_data_out: mut buffer[float4]
+
+// based on Parallel Prefix Sum (Scan) with CUDA by Mark Harris
+@workgroup binding scan:
+    temp: uint[2048]
+
+fun draw_indexed_indirect(offset: int, num_indices: uint, num_instances: uint, start_index: uint, start_vertex: uint, start_instance: uint){compaction, bgfx}:
+    compaction.drawcall_data[offset * 2 + 0] = uint4(num_indices, num_instances, bgfx.indirect_arg_base + start_index, start_vertex)
+    compaction.drawcall_data[offset * 2 + 1] = uint4(start_instance, 0u, 0u, 0u)
+
+@compute(1024) fun main(@thread_id id: int3){params, bgfx, compaction, scan}:
+    let t_id = id.x as uint
+    let noof_instances_pow_of_2 = params.culling_config.y as int
+    let noof_drawcalls = params.culling_config.w as int
+
+    let mut offset = 1
+    let mut predicate = compaction.instance_predicates[2u * t_id] as bool
+    scan.temp[2u * t_id] = if predicate => 1u else 0u
+
+    predicate = compaction.instance_predicates[2u * t_id + 1u] as bool
+    scan.temp[2u * t_id + 1u] = if predicate => 1u else 0u
+
+    // perform reduction
+    let mut d = noof_instances_pow_of_2 >> 1
+    while d > 0:
+        workgroup_barrier()
+
+        if t_id < (d as uint):
+            let ai = ((offset as uint) * (2u * t_id + 1u) - 1u) as int
+            let bi = ((offset as uint) * (2u * t_id + 2u) - 1u) as int
+            scan.temp[bi] += scan.temp[ai]
+
+        offset *= 2
+        d >>= 1
+
+    // clear the last element
+    if t_id == 0u:
+        scan.temp[noof_instances_pow_of_2 - 1] = 0u
+
+    // perform downsweep and build scan
+    d = 1
+    while d < noof_instances_pow_of_2:
+        offset >>= 1
+
+        workgroup_barrier()
+
+        if t_id < (d as uint):
+            let ai = ((offset as uint) * (2u * t_id + 1u) - 1u) as int
+            let bi = ((offset as uint) * (2u * t_id + 2u) - 1u) as int
+            let t = scan.temp[ai] as int
+            scan.temp[ai] = scan.temp[bi]
+            scan.temp[bi] += t as uint
+
+        d *= 2
+
+    workgroup_barrier()
+
+    let mut index = (2u * t_id) as int
+
+    // scatter results
+    predicate = compaction.instance_predicates[index] as bool
+    if predicate:
+        compaction.instance_data_out[4u * scan.temp[index]] = compaction.instance_data_in[4 * index]
+        compaction.instance_data_out[4u * scan.temp[index] + 1u] = compaction.instance_data_in[4 * index + 1]
+        compaction.instance_data_out[4u * scan.temp[index] + 2u] = compaction.instance_data_in[4 * index + 2]
+        compaction.instance_data_out[4u * scan.temp[index] + 3u] = compaction.instance_data_in[4 * index + 3]
+
+    index = (2u * t_id + 1u) as int
+
+    predicate = compaction.instance_predicates[index] as bool
+    if predicate:
+        compaction.instance_data_out[4u * scan.temp[index]] = compaction.instance_data_in[4 * index]
+        compaction.instance_data_out[4u * scan.temp[index] + 1u] = compaction.instance_data_in[4 * index + 1]
+        compaction.instance_data_out[4u * scan.temp[index] + 2u] = compaction.instance_data_in[4 * index + 2]
+        compaction.instance_data_out[4u * scan.temp[index] + 3u] = compaction.instance_data_in[4 * index + 3]
+
+    if t_id == 0u:
+        let mut start_instance = 0u
+
+        // copy data to indirect buffer, could possibly be done in a different compute shader
+        for k in 0 ..< noof_drawcalls:
+            draw_indexed_indirect(
+                k
+                // number of indices
+                compaction.drawcall_const_data[k * 3]
+                // number of instances
+                compaction.drawcall_instance_count[k].load()
+                // offset into the index buffer
+                compaction.drawcall_const_data[k * 3 + 1]
+                // offset into the vertex buffer
+                compaction.drawcall_const_data[k * 3 + 2]
+                // offset into the instance buffer
+                start_instance
+            )
+
+            start_instance += compaction.drawcall_instance_count[k].load()
+
+            compaction.drawcall_instance_count[k].store(0u)

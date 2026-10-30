@@ -1,0 +1,251 @@
+// Translated to SGL from bgfx examples/41-tess/cs_terrain_lod.sc, with terrain_common.sh, isubd.sh and fcull.sh.
+// Copyright 2010-2026 Branimir Karadzic, bgfx's line, since the original names none. BSD-2-Clause: sources/bgfx/LICENSE.
+
+// Implicit Subdivision Shader for Terrain Rendering
+
+const compute_thread_count = 32
+
+binding params:
+    dmap_factor: float
+    lod_factor: float
+    cull: float
+    freeze: float
+
+binding view:
+    model_view_proj: mat4
+    model_view: mat4
+    inv_view: mat4
+
+// sg binds three groups, so the displacement map shares the buffers' group
+binding terrain:
+    // displacement map
+    dmap: texture_2d[float4]
+    sampler s_dmap:
+        filter = .linear
+        address = .clamp_edge
+    subd_buffer_out: mut buffer[uint]
+    culled_subd_buffer: mut buffer[uint]
+    atomic_counter_buffer: mut buffer[atomic[uint]]
+    vertex_buffer: buffer[float4]
+    index_buffer: buffer[uint]
+    subd_buffer_in: buffer[uint]
+
+// gap: a matrix has no subscript, so a column is read back as the matrix times its axis
+fun mtx_get_column(m: mat4, column: int) -> float4:
+    let mut axis = float4(0.0)
+    axis[column] = 1.0
+    return m * axis
+
+fun mtx_get_element(m: mat4, column: int, row: int) -> float => mtx_get_column(m, column)[row]
+
+// ---- isubd.sh ----
+
+// bgfx's own loop, which it names findMSB_ to stay clear of GLSL's findMSB
+fun find_msb(x: uint) -> uint:
+    let top: uint = 0x8000'0000
+    // -1 as a uint
+    let mut res: uint = 0xffff'ffff
+
+    for i in 0 ..< 32:
+        let mask = top >> (i as uint)
+
+        if (x & mask) != 0u:
+            res = 31u - (i as uint)
+            break
+
+    return res
+
+fun parent_key(key: uint) -> uint => key >> 1u
+
+fun children_keys(key: uint) -> uint[2] => [(key << 1u) | 0u, (key << 1u) | 1u]
+
+fun is_root_key(key: uint) -> bool => key == 1u
+
+fun is_leaf_key(key: uint) -> bool => find_msb(key) == 31u
+
+fun is_child_zero_key(key: uint) -> bool => (key & 1u) == 0u
+
+// get xform from bit value
+fun bit_to_xform(bit: uint) -> mat3:
+    let b = bit as float
+    let c = 1.0 - b
+
+    let c1 = float3(0.0, c, b)
+    let c2 = float3(0.5, b, 0.0)
+    let c3 = float3(0.5, 0.0, c)
+
+    return mat3(c1, c2, c3)
+
+// get xform from key
+fun key_to_xform(key: uint) -> mat3:
+    let c1 = float3(1.0, 0.0, 0.0)
+    let c2 = float3(0.0, 1.0, 0.0)
+    let c3 = float3(0.0, 0.0, 1.0)
+
+    let mut xf = mat3(c1, c2, c3)
+
+    let mut k = key
+    while k > 1u:
+        xf = xf * bit_to_xform(k & 1u)
+        k = k >> 1u
+
+    return xf
+
+// gap: SGL has no 3x4 matrix, so mul(xf, mtxFromRows(rows)) goes column by column, and mtxGetRow reads its rows back
+fun xform_rows(xf: mat3, rows: float4[3]) -> float4[3]:
+    let c0 = xf * float3(rows[0].x, rows[1].x, rows[2].x)
+    let c1 = xf * float3(rows[0].y, rows[1].y, rows[2].y)
+    let c2 = xf * float3(rows[0].z, rows[1].z, rows[2].z)
+    let c3 = xf * float3(rows[0].w, rows[1].w, rows[2].w)
+    return [float4(c0.x, c1.x, c2.x, c3.x), float4(c0.y, c1.y, c2.y, c3.y), float4(c0.z, c1.z, c2.z, c3.z)]
+
+struct subdivision:
+    v: float4[3]
+    parent: float4[3]
+
+// subdivision routine (vertex position only), which also computes the parent position
+fun subd_with_parent(key: uint, v_in: float4[3]) -> subdivision:
+    let xfp = key_to_xform(parent_key(key))
+    let xf = key_to_xform(key)
+
+    return {
+        v = xform_rows(xf, v_in)
+        parent = xform_rows(xfp, v_in)
+    }
+
+// ---- terrain_common.sh ----
+
+// displacement map
+fun dmap(pos: float2){params, terrain} -> float:
+    return terrain.dmap.sample(pos * 0.5 + 0.5, terrain.s_dmap, level = 0.0).x * params.dmap_factor
+
+fun distance_to_lod(z: float, lod_factor: float) -> float:
+    // the result is multiplied by two because the triangles' edge lengths halve every two subdivision steps
+    return -2.0 * log2(clamp(z * lod_factor, 0.0, 1.0))
+
+fun compute_lod(c: float3){params, view, terrain} -> float:
+    // displace
+    let mut c = c
+    c.z += dmap(mtx_get_column(view.inv_view, 3).xy)
+
+    let cxf = (view.model_view * float4(c.x, c.y, c.z, 1.0)).xyz
+    let z = length(cxf)
+
+    return distance_to_lod(z, params.lod_factor)
+
+fun compute_lod(v: float4[3]){params, view, terrain} -> float:
+    let c = (v[1].xyz + v[2].xyz) / 2.0
+    return compute_lod(c)
+
+fun write_key(prim_id: uint, key: uint){terrain}:
+    let idx = terrain.atomic_counter_buffer[0].add(2u)
+
+    terrain.subd_buffer_out[idx] = prim_id
+    terrain.subd_buffer_out[idx + 1u] = key
+
+fun update_subd_buffer(prim_id: uint, key: uint, target_lod: uint, parent_lod: uint, is_visible: bool = true){terrain}:
+    // extract subdivision level associated to the key
+    let key_lod = find_msb(key)
+
+    // update the key accordingly
+    if key_lod < target_lod and (not is_leaf_key(key)) and is_visible:
+        // subdivide
+        let children = children_keys(key)
+
+        write_key(prim_id, children[0])
+        write_key(prim_id, children[1])
+    else if key_lod < (parent_lod + 1u) and is_visible:
+        // keep
+        write_key(prim_id, key)
+    else:
+        // merge
+        if is_root_key(key):
+            write_key(prim_id, key)
+        else if is_child_zero_key(key):
+            write_key(prim_id, parent_key(key))
+
+// ---- fcull.sh ----
+
+struct frustum:
+    planes: float4[6]
+
+// Extract frustum planes from the MVP matrix, after "Fast Extraction of Viewing Frustum Planes from the
+// World-View-Projection Matrix" by Gil Gribb and Klaus Hartmann.
+fun load_frustum(mvp: mat4) -> frustum:
+    let mut f = frustum(planes = float4[6].filled(float4(0.0)))
+
+    for i in 0 ..< 3:
+        for j in 0 ..< 2:
+            f.planes[i * 2 + j].x = mtx_get_element(mvp, 0, 3) + (if j == 0 => mtx_get_element(mvp, 0, i) else -mtx_get_element(mvp, 0, i))
+            f.planes[i * 2 + j].y = mtx_get_element(mvp, 1, 3) + (if j == 0 => mtx_get_element(mvp, 1, i) else -mtx_get_element(mvp, 1, i))
+            f.planes[i * 2 + j].z = mtx_get_element(mvp, 2, 3) + (if j == 0 => mtx_get_element(mvp, 2, i) else -mtx_get_element(mvp, 2, i))
+            f.planes[i * 2 + j].w = mtx_get_element(mvp, 3, 3) + (if j == 0 => mtx_get_element(mvp, 3, i) else -mtx_get_element(mvp, 3, i))
+            f.planes[i * 2 + j] *= length(f.planes[i * 2 + j].xyz)
+
+    return f
+
+// the negative vertex of an AABB given a normal, after the View Frustum Culling tutorial at LightHouse3D.com
+fun negative_vertex(bmin: float3, bmax: float3, n: float3) -> float3:
+    let b = n > float3(0.0, 0.0, 0.0)
+    return select(b, bmax, bmin)
+
+// true where the AABB is inside the frustum or intersects it, after the same tutorial
+fun frustum_culling_test(mvp: mat4, bmin: float3, bmax: float3) -> bool:
+    let mut a = 1.0
+    let f = load_frustum(mvp)
+
+    let mut i = 0
+    while i < 6 and a >= 0.0:
+        let n = negative_vertex(bmin, bmax, f.planes[i].xyz)
+        a = dot(float4(..n, 1.0), f.planes[i])
+        i += 1
+
+    return a >= 0.0
+
+// Compute LoD Shader
+//
+// This compute shader is responsible for updating the subdivision buffer and visible buffer that will be sent to the
+// rasterizer.
+@compute(compute_thread_count) fun main(@thread_id id: int3){params, view, terrain}:
+    // get threadID (each key is associated to a thread)
+    let thread_id = id.x as uint
+
+    if thread_id >= terrain.atomic_counter_buffer[2].load():
+        return
+
+    // get coarse triangle associated to the key
+    let prim_id = terrain.subd_buffer_in[thread_id * 2u]
+
+    let v_in = [
+        terrain.vertex_buffer[terrain.index_buffer[prim_id * 3u]]
+        terrain.vertex_buffer[terrain.index_buffer[prim_id * 3u + 1u]]
+        terrain.vertex_buffer[terrain.index_buffer[prim_id * 3u + 2u]]
+    ]
+
+    // compute distance-based LOD
+    let key = terrain.subd_buffer_in[thread_id * 2u + 1u]
+
+    let s = subd_with_parent(key, v_in)
+    let v = s.v
+    let vp = s.parent
+
+    let target_lod = if params.freeze == 0.0 => compute_lod(v) as uint else find_msb(key)
+    let parent_lod = if params.freeze == 0.0 => compute_lod(vp) as uint else target_lod
+
+    update_subd_buffer(prim_id, key, target_lod, parent_lod)
+
+    // cull invisible nodes
+    let mvp = view.model_view_proj
+    let mut bmin = min(min(v[0], v[1]), v[2])
+    let mut bmax = max(max(v[0], v[1]), v[2])
+
+    // account for displacement in bound computations
+    bmin.z = 0.0
+    bmax.z = params.dmap_factor
+
+    // update CulledSubdBuffer
+    if params.cull == 0.0 or frustum_culling_test(mvp, bmin.xyz, bmax.xyz):
+        // write key
+        let idx = terrain.atomic_counter_buffer[1].add(2u)
+        terrain.culled_subd_buffer[idx] = prim_id
+        terrain.culled_subd_buffer[idx + 1u] = key

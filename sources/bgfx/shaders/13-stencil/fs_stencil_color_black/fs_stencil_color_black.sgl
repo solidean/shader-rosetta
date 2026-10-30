@@ -1,0 +1,13 @@
+// Translated to SGL from bgfx examples/13-stencil/fs_stencil_color_black.sc.
+// Copyright 2013-2014 Dario Manesku. BSD-2-Clause: sources/bgfx/LICENSE.
+
+struct varyings:
+    @position position: hpos4
+
+@pixel struct target:
+    color: float4
+
+@pixel fun main(p: varyings) -> target:
+    return {
+        color = float4(0.0, 0.0, 0.0, 0.0)
+    }

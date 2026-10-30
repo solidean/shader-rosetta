@@ -1,0 +1,36 @@
+// Translated to SGL from bgfx examples/28-wireframe/fs_wf_wireframe.sc.
+// Copyright 2016 Dario Manesku. BSD-2-Clause: sources/bgfx/LICENSE.
+
+// bgfx's u_params[3], one member per define of uniforms.sh
+binding params:
+    cam_pos: float3
+    unused0: float
+    wf_color: float3
+    wf_opacity: float
+    draw_edges: float
+    wf_thickness: float
+    wf_stride: float
+
+struct varyings:
+    @position position: hpos4
+    view: float3
+    bc: float3
+
+@pixel struct target:
+    color: float4
+
+@pixel fun main(p: varyings, @is_front_facing front_facing: bool){params} -> target:
+    let color = params.wf_color
+    let mut opacity = params.wf_opacity
+    let thickness = params.wf_thickness
+
+    if front_facing => opacity *= 0.5
+
+    let fw = abs(ddx(p.bc)) + abs(ddy(p.bc))
+    let val = smoothstep(float3(0.0), fw * thickness, p.bc)
+    // gets to 0.0 around the edges
+    let edge = min(min(val.x, val.y), val.z)
+
+    return {
+        color = float4(..color, (1.0 - edge) * opacity)
+    }

@@ -1,0 +1,52 @@
+// Translated to SGL from bgfx examples/04-mesh/fs_mesh.sc.
+// Copyright 2011-2026 Branimir Karadzic. BSD-2-Clause: sources/bgfx/LICENSE.
+
+const pi = 3.1415926535897932384626433832795
+
+binding params:
+    time: float
+
+struct varyings:
+    @position position: hpos4
+    pos: float3
+    view: float3
+    normal: float3
+    color0: float4
+
+@pixel struct target:
+    color: float4
+
+fun blinn(light_dir: float3, normal: float3, view_dir: float3) -> float2:
+    let ndotl = dot(normal, light_dir)
+    let reflected = light_dir - 2.0 * ndotl * normal
+    let rdotv = dot(reflected, view_dir)
+    return float2(ndotl, rdotv)
+
+fun fresnel(ndotl: float, bias: float, power: float) -> float:
+    let facing = 1.0 - ndotl
+    return max(bias + (1.0 - bias) * pow(facing, power), 0.0)
+
+fun lit(ndotl: float, rdotv: float, m: float) -> float4:
+    let diff = max(0.0, ndotl)
+    let spec = step(0.0, ndotl) * max(0.0, rdotv * m)
+    return float4(1.0, diff, spec, 1.0)
+
+@pixel fun main(v: varyings){params} -> target:
+    let light_dir = float3(0.0, 0.0, -1.0)
+    let normal = normalize(v.normal)
+    let view = normalize(v.view)
+    let bln = blinn(light_dir, normal, view)
+    let lc = lit(bln.x, bln.y, 1.0)
+    let fres = fresnel(bln.x, 0.2, 5.0)
+
+    let index = ((sin(v.pos.x * 3.0 + params.time) * 0.3 + 0.7) + (cos(v.pos.y * 3.0 + params.time) * 0.4 + 0.6) + (cos(v.pos.z * 3.0 + params.time) * 0.2 + 0.8)) * pi
+
+    let color = float3(
+        sin(index * 8.0) * 0.4 + 0.6
+        sin(index * 4.0) * 0.4 + 0.6
+        sin(index * 2.0) * 0.4 + 0.6
+    ) * v.color0.xyz
+
+    return {
+        color = float4(..pow(float3(0.07, 0.06, 0.08) + color * lc.y + fres * pow(lc.z, 128.0), float3(1.0 / 2.2)), 1.0)
+    }

@@ -1,0 +1,47 @@
+// Translated to SGL from bgfx examples/38-bloom/fs_downsample.sc.
+// Copyright 2018 Eric Arnebäck. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding params:
+    // the pixel size of the target texture
+    pixel_size: float4
+
+binding material:
+    tex: texture_2d[float4]
+    sampler s_tex:
+        filter = .linear
+
+struct varyings:
+    @position position: hpos4
+    texcoord0: float2
+
+@pixel struct target:
+    color: float4
+
+@pixel fun main(p: varyings){params, material} -> target:
+    let half_pixel = 0.5 * float2(params.pixel_size.x, params.pixel_size.y)
+    let one_pixel = 1.0 * float2(params.pixel_size.x, params.pixel_size.y)
+
+    let uv = p.texcoord0.xy
+
+    let mut sum = float4(0.0, 0.0, 0.0, 0.0)
+
+    sum += (4.0 / 32.0) * material.tex.sample(uv, material.s_tex).xyzw
+
+    sum += (4.0 / 32.0) * material.tex.sample(uv + float2(-half_pixel.x, -half_pixel.y), material.s_tex)
+    sum += (4.0 / 32.0) * material.tex.sample(uv + float2(half_pixel.x, half_pixel.y), material.s_tex)
+    sum += (4.0 / 32.0) * material.tex.sample(uv + float2(half_pixel.x, -half_pixel.y), material.s_tex)
+    sum += (4.0 / 32.0) * material.tex.sample(uv + float2(-half_pixel.x, half_pixel.y), material.s_tex)
+
+    sum += (2.0 / 32.0) * material.tex.sample(uv + float2(one_pixel.x, 0.0), material.s_tex)
+    sum += (2.0 / 32.0) * material.tex.sample(uv + float2(-one_pixel.x, 0.0), material.s_tex)
+    sum += (2.0 / 32.0) * material.tex.sample(uv + float2(0.0, one_pixel.y), material.s_tex)
+    sum += (2.0 / 32.0) * material.tex.sample(uv + float2(0.0, -one_pixel.y), material.s_tex)
+
+    sum += (1.0 / 32.0) * material.tex.sample(uv + float2(one_pixel.x, one_pixel.y), material.s_tex)
+    sum += (1.0 / 32.0) * material.tex.sample(uv + float2(-one_pixel.x, one_pixel.y), material.s_tex)
+    sum += (1.0 / 32.0) * material.tex.sample(uv + float2(one_pixel.x, -one_pixel.y), material.s_tex)
+    sum += (1.0 / 32.0) * material.tex.sample(uv + float2(-one_pixel.x, -one_pixel.y), material.s_tex)
+
+    return {
+        color = sum
+    }

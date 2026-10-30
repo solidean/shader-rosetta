@@ -1,0 +1,31 @@
+// Translated to SGL from bgfx examples/15-shadowmaps-simple/vs_sms_mesh.sc.
+// Copyright 2013-2014 Dario Manesku. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding view:
+    model_view: mat4
+    model_view_proj: mat4
+
+binding light:
+    light_mtx: mat4
+
+@vertex struct vertex_input:
+    position: pos3
+    normal: float4
+
+struct varyings:
+    @position position: hpos4
+    view: float3
+    normal: float3
+    shadowcoord: float4
+
+@vertex fun main(v: vertex_input){view, light} -> varyings:
+    let normal = v.normal * 2.0 - 1.0
+
+    let shadow_map_offset = 0.001
+    let pos_offset = v.position.xyz + normal.xyz * shadow_map_offset
+    return {
+        position = view.model_view_proj * v.position
+        view = (view.model_view * v.position).xyz
+        normal = normalize((view.model_view * float4(..normal.xyz, 0.0)).xyz)
+        shadowcoord = light.light_mtx * float4(..pos_offset, 1.0)
+    }

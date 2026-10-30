@@ -1,0 +1,22 @@
+// Translated to SGL from bgfx examples/08-update/cs_update.sc.
+// Copyright 2014 Stanlo Slasinski. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding images:
+    tex_color: out image_2d_array[.rgba8_unorm]
+
+binding params:
+    time: float
+
+@compute(16, 16, 1) fun main(@thread_id id: int3){images, params}:
+    let colors = [
+        float3(1.0, 0.0, 0.0)
+        float3(1.0, 1.0, 0.0)
+        float3(1.0, 0.0, 1.0)
+        float3(0.0, 1.0, 0.0)
+        float3(0.0, 1.0, 1.0)
+        float3(0.0, 0.0, 1.0)
+    ]
+
+    for face in 0 ..< 6:
+        let color = colors[face] * 0.75 + sin(params.time * 4.0) * 0.25
+        images.tex_color[id.xy, layer = face] = float4(..color, 1.0)

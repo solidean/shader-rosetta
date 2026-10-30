@@ -1,0 +1,36 @@
+// Translated to SGL from bgfx examples/28-wireframe/vs_wf_mesh.sc.
+// Copyright 2016 Dario Manesku. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding view:
+    model_view_proj: mat4
+    model: mat4
+
+// bgfx's u_params[3], one member per define of uniforms.sh
+binding params:
+    cam_pos: float3
+    unused0: float
+    wf_color: float3
+    wf_opacity: float
+    draw_edges: float
+    wf_thickness: float
+    wf_stride: float
+
+@vertex struct vertex_input:
+    position: pos3
+    color1: float3
+    normal: float3
+
+struct varyings:
+    @position position: hpos4
+    view: float3
+    bc: float3
+    normal: float3
+
+@vertex fun main(v: vertex_input){view, params} -> varyings:
+    let normal = v.normal.xyz * 2.0 - 1.0
+    return {
+        position = view.model_view_proj * v.position
+        view = params.cam_pos - (view.model * v.position).xyz
+        bc = v.color1
+        normal = (view.model * float4(..normal, 0.0)).xyz
+    }

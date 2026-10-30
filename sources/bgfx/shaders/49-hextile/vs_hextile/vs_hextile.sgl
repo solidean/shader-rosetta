@@ -1,0 +1,23 @@
+// Translated to SGL from bgfx examples/49-hextile/vs_hextile.sc.
+// Copyright 2015 Andrew Mac. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding view:
+    model: mat4
+    view_proj: mat4
+
+@vertex struct vertex_input:
+    position: pos3
+    texcoord0: float2
+
+struct varyings:
+    @position position: hpos4
+    world_position: float3
+    texcoord0: float2
+
+@vertex fun main(v: vertex_input){view} -> varyings:
+    let vp = (view.model * v.position).xyz
+    return {
+        position = view.view_proj * pos3(..vp)
+        world_position = vp
+        texcoord0 = (view.model * float4(..v.texcoord0, 1.0, 1.0)).xy
+    }

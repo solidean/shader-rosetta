@@ -1,0 +1,26 @@
+// Translated to SGL from bgfx examples/13-stencil/fs_stencil_color_texture.sc.
+// Copyright 2013-2014 Dario Manesku. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding material:
+    color: float4
+    tex_color: texture_2d[float4]
+    sampler s_tex_color:
+        filter = .linear
+
+struct varyings:
+    @position position: hpos4
+    texcoord0: float2
+
+@pixel struct target:
+    color: float4
+
+fun to_linear(c: float4) => float4(..pow(abs(c.xyz), float3(2.2)), c.w)
+
+fun to_gamma(c: float4) => float4(..pow(abs(c.xyz), float3(1.0 / 2.2)), c.w)
+
+@pixel fun main(v: varyings){material} -> target:
+    let color = to_linear(material.tex_color.sample(v.texcoord0, material.s_tex_color))
+    if color.x < 0.1 => discard
+    return {
+        color = to_gamma(color + material.color)
+    }

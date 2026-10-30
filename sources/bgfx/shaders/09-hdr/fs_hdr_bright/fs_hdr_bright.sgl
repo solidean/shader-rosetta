@@ -1,0 +1,66 @@
+// Translated to SGL from bgfx examples/09-hdr/fs_hdr_bright.sc.
+// Copyright 2011-2026 Branimir Karadzic. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding params:
+    offset: float4[16]
+    middle_gray: float
+    white_sqr: float
+    threshold: float
+    time: float
+
+binding material:
+    tex_color: texture_2d[float4]
+    tex_lum: texture_2d[float4]
+    sampler s_tex:
+        filter = .linear
+
+struct varyings:
+    @position position: hpos4
+    texcoord0: float2
+
+@pixel struct target:
+    color: float4
+
+fun decode_re8(re8: float4) -> float:
+    let exponent = re8.w * 255.0 - 128.0
+    return re8.x * exp2(exponent)
+
+fun decode_rgbe8(rgbe8: float4) -> float3:
+    let exponent = rgbe8.w * 255.0 - 128.0
+    return rgbe8.xyz * exp2(exponent)
+
+fun reinhard2(x: float, white_sqr: float) => (x * (1.0 + x / white_sqr)) / (1.0 + x)
+
+fun reinhard2(x: float3, white_sqr: float) => (x * (1.0 + x / white_sqr)) / (1.0 + x)
+
+fun to_gamma(rgb: float3) => pow(abs(rgb), float3(1.0 / 2.2))
+
+fun to_gamma(rgba: float4) => float4(..to_gamma(rgba.xyz), rgba.w)
+
+@pixel fun main(p: varyings){params, material} -> target:
+    let lum = clamp(decode_re8(material.tex_lum.sample(p.texcoord0, material.s_tex)), 0.1, 0.7)
+
+    let mut rgb = float3(0.0, 0.0, 0.0)
+    rgb += decode_rgbe8(material.tex_color.sample(p.texcoord0 + params.offset[0].xy, material.s_tex))
+    rgb += decode_rgbe8(material.tex_color.sample(p.texcoord0 + params.offset[1].xy, material.s_tex))
+    rgb += decode_rgbe8(material.tex_color.sample(p.texcoord0 + params.offset[2].xy, material.s_tex))
+    rgb += decode_rgbe8(material.tex_color.sample(p.texcoord0 + params.offset[3].xy, material.s_tex))
+    rgb += decode_rgbe8(material.tex_color.sample(p.texcoord0 + params.offset[4].xy, material.s_tex))
+    rgb += decode_rgbe8(material.tex_color.sample(p.texcoord0 + params.offset[5].xy, material.s_tex))
+    rgb += decode_rgbe8(material.tex_color.sample(p.texcoord0 + params.offset[6].xy, material.s_tex))
+    rgb += decode_rgbe8(material.tex_color.sample(p.texcoord0 + params.offset[7].xy, material.s_tex))
+    rgb += decode_rgbe8(material.tex_color.sample(p.texcoord0 + params.offset[8].xy, material.s_tex))
+
+    rgb *= 1.0 / 9.0
+
+    let middle_gray = params.middle_gray
+    let white_sqr = params.white_sqr
+    let threshold = params.threshold
+    let offset = params.time
+
+    rgb = max(float3(0.0), rgb - threshold) * middle_gray / (lum + 0.0001)
+    rgb = reinhard2(rgb, white_sqr)
+
+    return {
+        color = to_gamma(float4(..rgb, 1.0))
+    }

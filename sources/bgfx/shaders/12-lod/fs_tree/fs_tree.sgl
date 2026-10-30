@@ -1,0 +1,54 @@
+// Translated to SGL from bgfx examples/12-lod/fs_tree.sc.
+// Copyright 2013 Milos Tosic. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding view:
+    view_rect: float4
+
+binding material:
+    tex_color: texture_2d[float4]
+    tex_stipple: texture_2d[float4]
+    sampler s_tex:
+        filter = .linear
+
+binding params:
+    stipple: float4
+
+struct varyings:
+    @position position: hpos4
+    normal: float3
+    texcoord0: float2
+    pos: float3
+    view: float3
+
+@pixel struct target:
+    color: float4
+
+fun blinn(light_dir: float3, normal: float3, view_dir: float3) -> float2:
+    let ndotl = dot(normal, light_dir)
+    let reflected = light_dir - 2.0 * ndotl * normal
+    let rdotv = dot(reflected, view_dir)
+    return float2(ndotl, rdotv)
+
+// from shaderlib.sh
+fun to_linear(rgb: float3) => pow(abs(rgb), float3(2.2))
+
+fun to_gamma(rgb: float3) => pow(abs(rgb), float3(1.0 / 2.2))
+
+fun to_gamma(rgba: float4) => float4(..to_gamma(rgba.xyz), rgba.w)
+
+@pixel fun main(v: varyings){view, material, params} -> target:
+    let viewport = (view.view_rect.zw - view.view_rect.xy) * float2(1.0 / 8.0, 1.0 / 4.0)
+    let stipple_uv = viewport * (v.pos.xy * 0.5 + 0.5)
+    let color = material.tex_color.sample(v.texcoord0, material.s_tex)
+    if (params.stipple.x - material.tex_stipple.sample(stipple_uv, material.s_tex).x) * params.stipple.y > params.stipple.z or color.w < 0.5:
+        discard
+
+    let light_dir = float3(0.0, 0.0, -1.0)
+    let normal = normalize(v.normal)
+    let view_dir = normalize(v.view)
+    let bln = blinn(light_dir, normal, view_dir)
+    let l = saturate(bln.y) + 0.12
+
+    return {
+        color = to_gamma(float4(..(to_linear(color.xyz) * l), color.w))
+    }

@@ -1,0 +1,88 @@
+// Translated to SGL from bgfx examples/48-drawindirect/cs_drawindirect_count.sc, which is cs_drawindirect.sc with INDIRECT_COUNT defined.
+// Copyright 2022 Liam Twigger. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding draw:
+    draw_params: float4
+
+// bgfx's own uniform, which offsets every indexed draw's first index
+binding bgfx:
+    // bgfx carries it in a float's bits
+    indirect_arg_base: uint
+
+binding instances:
+    // instance data for all instances (pre culling)
+    instance_data_in: buffer[float4]
+    indirect_buffer: mut buffer[uint4]
+    instance_buffer_out: mut buffer[float4]
+    indirect_count_buffer: mut buffer[int]
+
+fun draw_indexed_indirect(offset: int, num_indices: uint, num_instances: uint, start_index: uint, start_vertex: uint, start_instance: uint){instances, bgfx}:
+    instances.indirect_buffer[offset * 2 + 0] = uint4(num_indices, num_instances, bgfx.indirect_arg_base + start_index, start_vertex)
+    instances.indirect_buffer[offset * 2 + 1] = uint4(start_instance, 0u, 0u, 0u)
+
+@compute(64) fun main(@thread_id id: int3){draw, bgfx, instances}:
+    let t_id = id.x
+    let num_draw_items = draw.draw_params.x as int
+    let side_size = draw.draw_params.y as int
+    let time = draw.draw_params.z
+
+    // work out the amount of work we're going to do here
+    let max_to_draw = min(side_size * side_size, num_draw_items)
+
+    let num_to_draw_per_thread = max_to_draw / 64 + 1
+
+    let idx_start = t_id * num_to_draw_per_thread
+    let idx_max = min(max_to_draw, (t_id + 1) * num_to_draw_per_thread)
+
+    // prepare draw mtx
+    for k in idx_start ..< idx_max:
+        let yy = k / side_size
+        let xx = k % side_size
+
+        let ax = time + (xx as float) * 0.21
+        let ay = time + (yy as float) * 0.37
+        let sx = sin(ax)
+        let cx = cos(ax)
+        let sy = sin(ay)
+        let cy = cos(ay)
+
+        let a = float4(cy, 0.0, sy, 0.0)
+        let b = float4(sx * sy, cx, -sx * cy, 0.0)
+        let c = float4(-cx * sy, sx, cx * cy, 0.0)
+
+        let d = float4(
+            -15.0 - ((side_size - 11) as float) * 1.2 + (xx as float) * 3.0
+            -15.0 - ((side_size - 11) as float) * 1.4 + (yy as float) * 3.0
+            max(0.0, ((side_size as float) - 11.0) * 3.0)
+            1.0
+        )
+
+        let color = float4(
+            sin(time + (xx as float) / 11.0) * 0.5 + 0.5
+            cos(time + (yy as float) / 11.0) * 0.5 + 0.5
+            sin(time * 3.0) * 0.5 + 0.5
+            1.0
+        )
+
+        instances.instance_buffer_out[k * 5 + 0] = a
+        instances.instance_buffer_out[k * 5 + 1] = b
+        instances.instance_buffer_out[k * 5 + 2] = c
+        instances.instance_buffer_out[k * 5 + 3] = d
+        instances.instance_buffer_out[k * 5 + 4] = color
+
+    // fill indirect buffer
+    for k in idx_start ..< idx_max:
+        draw_indexed_indirect(
+            // target location: the index in the buffer
+            k
+            // the draw: its index count, its instance count, its offsets into the index, vertex and instance buffers
+            instances.instance_data_in[k].w as uint
+            1u
+            instances.instance_data_in[k].z as uint
+            instances.instance_data_in[k].x as uint
+            k as uint
+        )
+
+    // with BGFX_CAPS_DRAW_INDIRECT_COUNT, the number of draws is limited without a CPU round trip
+    if t_id == 0:
+        instances.indirect_count_buffer[0] = max_to_draw

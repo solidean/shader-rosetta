@@ -1,0 +1,33 @@
+// Translated to SGL from bgfx examples/36-sky/fs_sky.sc.
+// Copyright 2017 Stanislav Pidhorskyi. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding params:
+    // x - sun size, y - sun bloom, z - exposition, w - time
+    parameters: float4
+    sun_direction: float4
+    sun_luminance: float4
+
+struct varyings:
+    @position position: hpos4
+    sky_color: float3
+    screen_pos: float2
+    view_dir: float3
+
+@pixel struct target:
+    color: float4
+
+// shaderlib.sh
+fun to_gamma(rgb: float3) => pow(abs(rgb), float3(1.0 / 2.2))
+
+@pixel fun main(p: varyings){params} -> target:
+    let size2 = params.parameters.x * params.parameters.x
+
+    let light_dir = normalize(params.sun_direction.xyz)
+    let dist = 2.0 * (1.0 - dot(normalize(p.view_dir), light_dir))
+    let sun = exp(-dist / params.parameters.y / size2) + step(dist, size2)
+    let sun2 = min(sun * sun, 1.0)
+    let color = to_gamma(p.sky_color + sun2)
+
+    return {
+        color = float4(..color, 1.0)
+    }

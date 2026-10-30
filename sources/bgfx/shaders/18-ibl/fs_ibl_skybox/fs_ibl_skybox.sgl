@@ -1,0 +1,72 @@
+// Translated to SGL from bgfx examples/18-ibl/fs_ibl_skybox.sc.
+// Copyright 2014-2016 Dario Manesku. BSD-2-Clause: sources/bgfx/LICENSE.
+
+// bgfx's u_params[12], one member per define of uniforms.sh
+binding params:
+    mtx0: float4
+    mtx1: float4
+    mtx2: float4
+    mtx3: float4
+    glossiness: float
+    reflectivity: float
+    exposure: float
+    bg_type: float
+    metal_or_spec: float
+    unused: float3
+    do_diffuse: float
+    do_specular: float
+    do_diffuse_ibl: float
+    do_specular_ibl: float
+    cam_pos: float3
+    unused7: float
+    rgb_diff: float4
+    rgb_spec: float4
+    light_dir: float3
+    unused10: float
+    light_col: float3
+    unused11: float
+
+binding environment:
+    tex_cube: texture_cube[float4]
+    tex_cube_irr: texture_cube[float4]
+    sampler s_tex:
+        filter = .linear
+
+struct varyings:
+    @position position: hpos4
+    dir: float3
+
+@pixel struct target:
+    color: float4
+
+// shaderlib.sh
+fun fix_cube_lookup(v: float3, lod: float, top_level_cube_size: float) -> float3:
+    let ax = abs(v.x)
+    let ay = abs(v.y)
+    let az = abs(v.z)
+    let vmax = max(max(ax, ay), az)
+    let scale = 1.0 - exp2(lod) / top_level_cube_size
+    let mut r = v
+    if ax != vmax => r.x *= scale
+    if ay != vmax => r.y *= scale
+    if az != vmax => r.z *= scale
+    return r
+
+fun to_linear(rgb: float3) => pow(abs(rgb), float3(2.2))
+
+fun to_linear(rgba: float4) => float4(..to_linear(rgba.xyz), rgba.w)
+
+fun to_filmic(rgb: float3) -> float3:
+    let c = max(float3(0.0), rgb - 0.004)
+    return (c * (6.2 * c + 0.5)) / (c * (6.2 * c + 1.7) + 0.06)
+
+fun to_filmic(rgba: float4) => float4(..to_filmic(rgba.xyz), rgba.w)
+
+@pixel fun main(p: varyings){params, environment} -> target:
+    let dir = normalize(p.dir)
+
+    let lod = params.bg_type
+    let color = if lod == 7.0 => to_linear(environment.tex_cube_irr.sample(dir, environment.s_tex)) else to_linear(environment.tex_cube.sample(fix_cube_lookup(dir, lod, 256.0), environment.s_tex, level = lod))
+    return {
+        color = to_filmic(color * exp2(params.exposure))
+    }

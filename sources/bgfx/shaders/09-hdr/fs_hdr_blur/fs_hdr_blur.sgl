@@ -1,0 +1,42 @@
+// Translated to SGL from bgfx examples/09-hdr/fs_hdr_blur.sc.
+// Copyright 2011-2026 Branimir Karadzic. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding material:
+    tex_color: texture_2d[float4]
+    sampler s_tex:
+        filter = .linear
+
+struct varyings:
+    @position position: hpos4
+    texcoord0: float2
+    texcoord1: float4
+    texcoord2: float4
+    texcoord3: float4
+    texcoord4: float4
+
+@pixel struct target:
+    color: float4
+
+const blur9_weight_0 = 1.0
+const blur9_weight_1 = 0.9
+const blur9_weight_2 = 0.55
+const blur9_weight_3 = 0.18
+const blur9_weight_4 = 0.1
+const blur9_normalize = blur9_weight_0 + 2.0 * (blur9_weight_1 + blur9_weight_2 + blur9_weight_3 + blur9_weight_4)
+
+fun blur9(tex: texture_2d[float4], smp: sampler, uv0: float2, uv1: float4, uv2: float4, uv3: float4, uv4: float4) -> float4:
+    let mut blur = tex.sample(uv0, smp) * (blur9_weight_0 / blur9_normalize)
+    blur += tex.sample(uv1.xy, smp) * (blur9_weight_1 / blur9_normalize)
+    blur += tex.sample(uv1.zw, smp) * (blur9_weight_1 / blur9_normalize)
+    blur += tex.sample(uv2.xy, smp) * (blur9_weight_2 / blur9_normalize)
+    blur += tex.sample(uv2.zw, smp) * (blur9_weight_2 / blur9_normalize)
+    blur += tex.sample(uv3.xy, smp) * (blur9_weight_3 / blur9_normalize)
+    blur += tex.sample(uv3.zw, smp) * (blur9_weight_3 / blur9_normalize)
+    blur += tex.sample(uv4.xy, smp) * (blur9_weight_4 / blur9_normalize)
+    blur += tex.sample(uv4.zw, smp) * (blur9_weight_4 / blur9_normalize)
+    return blur
+
+@pixel fun main(p: varyings){material} -> target:
+    return {
+        color = blur9(material.tex_color, material.s_tex, p.texcoord0, p.texcoord1, p.texcoord2, p.texcoord3, p.texcoord4)
+    }

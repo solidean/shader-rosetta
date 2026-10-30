@@ -1,0 +1,104 @@
+// Translated to SGL from bgfx examples/03-raymarch/fs_raymarching.sc.
+// Copyright 2011-2026 Branimir Karadzic. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding params:
+    mtx: mat4
+    light_dir: float3
+    time: float
+
+struct varyings:
+    @position position: hpos4
+    color0: float4
+    texcoord0: float2
+
+@pixel struct target:
+    color: float4
+    @depth depth: float
+
+// from iq_sdf.sh
+fun sd_sphere(pos: float3, radius: float) -> float => length(pos) - radius
+
+fun ud_round_box(pos: float3, extents: float3, r: float) -> float => length(max(abs(pos) - extents, float3(0.0))) - r
+
+fun scene_dist(pos: float3) -> float:
+    let d1 = ud_round_box(pos, float3(2.5, 2.5, 2.5), 0.5)
+    let d2 = sd_sphere(pos + float3(4.0, 0.0, 0.0), 1.0)
+    let d3 = sd_sphere(pos + float3(-4.0, 0.0, 0.0), 1.0)
+    let d4 = sd_sphere(pos + float3(0.0, 4.0, 0.0), 1.0)
+    let d5 = sd_sphere(pos + float3(0.0, -4.0, 0.0), 1.0)
+    let d6 = sd_sphere(pos + float3(0.0, 0.0, 4.0), 1.0)
+    let d7 = sd_sphere(pos + float3(0.0, 0.0, -4.0), 1.0)
+    return min(min(min(min(min(min(d1, d2), d3), d4), d5), d6), d7)
+
+fun calc_normal(pos: float3) -> float3:
+    let delta = float2(0.002, 0.0)
+    let nx = scene_dist(pos + delta.xyy) - scene_dist(pos - delta.xyy)
+    let ny = scene_dist(pos + delta.yxy) - scene_dist(pos - delta.yxy)
+    let nz = scene_dist(pos + delta.yyx) - scene_dist(pos - delta.yyx)
+    return normalize(float3(nx, ny, nz))
+
+fun calc_amb_occ(pos: float3, normal: float3) -> float:
+    let mut occ = 0.0
+    let ao_step = 0.2
+    for ii in 1 ..< 4:
+        let fi = ii as float
+        let dist = scene_dist(pos + normal * fi * ao_step)
+        occ += (fi * ao_step - dist) / pow(2.0, fi)
+    return 1.0 - occ
+
+fun trace(ray: float3, dir: float3, max_d: float) -> float:
+    let mut tt = 0.0
+    let epsilon = 0.001
+    for ii in 0 ..< 64:
+        let dist = scene_dist(ray + dir * tt)
+        if dist > epsilon:
+            tt += dist
+    return (if tt < max_d => tt else 0.0)
+
+fun blinn(light_dir: float3, normal: float3, view_dir: float3) -> float2:
+    let ndotl = dot(normal, light_dir)
+    let reflected = light_dir - 2.0 * ndotl * normal
+    let rdotv = dot(reflected, view_dir)
+    return float2(ndotl, rdotv)
+
+fun fresnel(ndotl: float, bias: float, power: float) -> float:
+    let facing = 1.0 - ndotl
+    return max(bias + (1.0 - bias) * pow(facing, power), 0.0)
+
+fun lit(ndotl: float, rdotv: float, m: float) -> float4:
+    let diff = max(0.0, ndotl)
+    let spec = step(0.0, ndotl) * max(0.0, rdotv * m)
+    return float4(1.0, diff, spec, 1.0)
+
+@pixel fun main(v: varyings){params} -> target:
+    let near = params.mtx * float4(..v.texcoord0, 0.0, 1.0)
+    let eye = near.xyz / near.w
+    let far = params.mtx * float4(..v.texcoord0, 1.0, 1.0)
+    let at = far.xyz / far.w
+
+    let max_d = length(at - eye)
+    let dir = normalize(at - eye)
+
+    let dist = trace(eye, dir, max_d)
+
+    if dist > 0.5:
+        let pos = eye + dir * dist
+        let normal = calc_normal(pos)
+
+        let bln = blinn(params.light_dir, normal, dir)
+        let lc = lit(bln.x, bln.y, 1.0)
+        let fres = fresnel(bln.x, 0.2, 5.0)
+
+        let mut val = 0.9 * lc.y + pow(lc.z, 128.0) * fres
+        val *= calc_amb_occ(pos, normal)
+        val = pow(val, 1.0 / 2.2)
+
+        return {
+            color = float4(val, val, val, 1.0)
+            depth = dist / max_d
+        }
+
+    return {
+        color = v.color0
+        depth = 1.0
+    }

@@ -1,0 +1,87 @@
+// Translated to SGL from bgfx examples/33-pom/fs_pom.sc.
+// The original carries no copyright line; bgfx: Copyright 2010-2026 Branimir Karadzic. BSD-2-Clause: sources/bgfx/LICENSE.
+
+binding material:
+    tex_color: texture_2d[float4]
+    tex_normal: texture_2d[float4]
+    tex_depth: texture_2d[float4]
+    sampler s_tex:
+        filter = .linear
+
+// bgfx's u_pomParam, one member per define
+binding params:
+    shading_type: float
+    show_diffuse_texture: float
+    parallax_scale: float
+    num_steps: float
+
+struct varyings:
+    @position position: hpos4
+    texcoord0: float2
+    ts_light_pos: float3
+    ts_view_pos: float3
+    ts_frag_pos: float3
+
+@pixel struct target:
+    color: float4
+
+// shaderlib.sh
+fun texture_2d_bc5(tex: texture_2d[float4], smp: sampler, uv: float2) => tex.sample(uv, smp).xy
+
+fun parallax_uv(uv: float2, view_dir: float3){material, params} -> float2:
+    let depth_scale = params.parallax_scale / 1000.0
+    if params.shading_type == 2.0:
+        // Parallax mapping
+        let depth = material.tex_depth.sample(uv, material.s_tex).x
+        let p = view_dir.xy * (depth * depth_scale) / view_dir.z
+        return uv - p
+    else:
+        let layer_depth = 1.0 / params.num_steps
+        let mut cur_layer_depth = 0.0
+        let delta_uv = view_dir.xy * depth_scale / (view_dir.z * params.num_steps)
+        let mut cur_uv = uv
+
+        let mut depth_from_tex = material.tex_depth.sample(cur_uv, material.s_tex).x
+        // the loop leaves per pixel, so a sample in it names the gradients the original took implicitly
+        let grad_x = ddx(cur_uv)
+        let grad_y = ddy(cur_uv)
+
+        for i in 0 ..< 32:
+            cur_layer_depth += layer_depth
+            cur_uv -= delta_uv
+            depth_from_tex = material.tex_depth.sample(cur_uv, material.s_tex, grad_x = grad_x, grad_y = grad_y).x
+            if depth_from_tex < cur_layer_depth => break
+
+        if params.shading_type == 3.0:
+            // Steep parallax mapping
+            return cur_uv
+        else:
+            // Parallax occlusion mapping
+            let prev_uv = cur_uv + delta_uv
+            let next = depth_from_tex - cur_layer_depth
+            let prev = material.tex_depth.sample(prev_uv, material.s_tex).x - cur_layer_depth + layer_depth
+            let weight = next / (next - prev)
+            return mix(cur_uv, prev_uv, weight)
+
+@pixel fun main(p: varyings){material, params} -> target:
+    let light_dir = normalize(p.ts_light_pos - p.ts_frag_pos)
+    let view_dir = normalize(p.ts_view_pos - p.ts_frag_pos)
+
+    // only perturb the texture coordinates if a parallax technique is selected
+    let uv = if params.shading_type < 2.0 => p.texcoord0 else parallax_uv(p.texcoord0, view_dir)
+
+    let albedo = if params.show_diffuse_texture == 0.0 => float3(1.0, 1.0, 1.0) else material.tex_color.sample(uv, material.s_tex).xyz
+
+    let ambient = 0.3 * albedo
+
+    let mut normal = float3(0.0)
+    if params.shading_type == 0.0:
+        normal = float3(0.0, 0.0, 1.0)
+    else:
+        normal.xy = texture_2d_bc5(material.tex_normal, material.s_tex, uv) * 2.0 - 1.0
+        normal.z = sqrt(1.0 - dot(normal.xy, normal.xy))
+
+    let diffuse = max(dot(light_dir, normal), 0.0)
+    return {
+        color = float4(..(diffuse * albedo + ambient), 1.0)
+    }

@@ -1,0 +1,197 @@
+// Translated to SGL from bgfx examples/49-hextile/fs_hextile.sc.
+// Copyright 2022 Preetish Kakkar. BSD-2-Clause: sources/bgfx/LICENSE.
+
+// Most of the code is inspired/ported from https://github.com/mmikk/hextile-demo/blob/main/hextile-demo/shader_lighting.hlsl
+//
+// The idea is tiling and blending, with a blending operator that prevents the artifacts linear blending causes.
+// The uv-space is partitioned on a triangle grid, giving the local triangle and the barycentric coordinates inside it.
+// A hash associates a random offset with each vertex of the triangle grid, and the example texture is fetched at that offset.
+// The results blend with the barycentric coordinates as weights.
+
+const pi = 3.1415926535897932384626433832795
+
+binding material:
+    trx_d: texture_2d[float4]
+    sampler s_tex:
+        filter = .linear
+
+// bgfx's u_params, one member per define
+binding params:
+    show_weights: float
+    tile_rate: float
+    tile_rot_strength: float
+    use_regular_tiling: float
+
+struct varyings:
+    @position position: hpos4
+    world_position: float3
+    texcoord0: float2
+
+@pixel struct target:
+    color: float4
+
+// the local triangle of a point in uv: its barycentric coordinates and its vertex ids
+struct triangle_grid:
+    w1: float
+    w2: float
+    w3: float
+    vertex1: float2
+    vertex2: float2
+    vertex3: float2
+
+struct hex_color:
+    color: float4
+    weights: float3
+
+struct color_and_weights:
+    color: float3
+    weights: float3
+
+fun module_oper(a: float, b: float) => a - (b * floor(a / b))
+
+fun gain3(x: float3, r: float) -> float3:
+    // increase contrast when r > 0.5, and reduce it if less
+    let k = log(1.0 - r) / log(0.5)
+
+    let s = 2.0 * step(float3(0.5), x)
+    let m = 2.0 * (1.0 - s)
+
+    let res = 0.5 * s + 0.25 * m * pow(max(float3(0.0), s + x * m), float3(k))
+
+    return res.xyz / (res.x + res.y + res.z)
+
+// The original's float2x2(a, b, c, d) has the rows (a, b) and (c, d), and a mat2 is built from its columns.
+// gap: SGL has no mat2; it is written as mat3 is.
+fun load_rot2x2(idx: float2, rot_strength: float) -> mat2:
+    let mut angle = abs(idx.x * idx.y) + abs(idx.x + idx.y) + pi
+
+    // remap to +/-pi
+    if angle < 0.0 => angle += 2.0 * pi
+    if angle > pi => angle -= 2.0 * pi
+
+    angle *= rot_strength
+
+    let cs = cos(angle)
+    let si = sin(angle)
+
+    return mat2(float2(cs, si), float2(-si, cs))
+
+fun make_cen_st(vertex: float2) -> float2:
+    let inv_skew_mat = mat2(float2(1.0, 0.0), float2(0.5, 1.0 / 1.15470054))
+
+    return inv_skew_mat * vertex / (2.0 * sqrt(3.0))
+
+fun produce_hex_weights(w: float3, vertex1: float2, vertex2: float2, vertex3: float2) -> float3:
+    let mut v1 = module_oper(vertex1.x - vertex1.y, 3.0)
+    if v1 < 0.0 => v1 += 3.0
+
+    let vh = if v1 < 2.0 => v1 + 1.0 else 0.0
+    let vl = if v1 > 0.0 => v1 - 1.0 else 2.0
+    let v2 = if vertex1.x < vertex3.x => vl else vh
+    let v3 = if vertex1.x < vertex3.x => vh else vl
+
+    return float3(
+        if v3 == 0.0 => w.z else if v2 == 0.0 => w.y else w.x,
+        if v3 == 1.0 => w.z else if v2 == 1.0 => w.y else w.x,
+        if v3 == 2.0 => w.z else if v2 == 2.0 => w.y else w.x
+    )
+
+fun hash(p: float2) -> float2:
+    let r = mat2(float2(127.1, 269.5), float2(311.7, 183.3)) * p
+
+    return fract(sin(r) * 43758.5453)
+
+fun make_triangle_grid(uv: float2) -> triangle_grid:
+    // the size of the input with respect to the size of the tiles
+    let scaled = uv * (2.0 * sqrt(3.0))
+
+    // skew the input space into a simplex triangle grid
+    let grid_to_skewed_grid = mat2(float2(1.0, 0.0), float2(-0.57735027, 1.15470054))
+    let skewed_coord = grid_to_skewed_grid * scaled
+
+    let base_id = floor(skewed_coord)
+    let mut temp = float3(..fract(skewed_coord), 0.0)
+    temp.z = 1.0 - temp.x - temp.y
+
+    let s = step(0.0, -temp.z)
+    let s2 = 2.0 * s - 1.0
+
+    return {
+        w1 = -temp.z * s2
+        w2 = s - temp.y * s2
+        w3 = s - temp.x * s2
+        vertex1 = base_id + float2(s, s)
+        vertex2 = base_id + float2(s, 1.0 - s)
+        vertex3 = base_id + float2(1.0 - s, s)
+    }
+
+fun hex2col_tex(uv: float2, rot_strength: float, r: float){material} -> hex_color:
+    // uv derivatives
+    let d_st_dx = ddx(uv)
+    let d_st_dy = ddy(uv)
+
+    // triangle info
+    let grid = make_triangle_grid(uv)
+
+    let rot1 = load_rot2x2(grid.vertex1, rot_strength)
+    let rot2 = load_rot2x2(grid.vertex2, rot_strength)
+    let rot3 = load_rot2x2(grid.vertex3, rot_strength)
+
+    let cen1 = make_cen_st(grid.vertex1)
+    let cen2 = make_cen_st(grid.vertex2)
+    let cen3 = make_cen_st(grid.vertex3)
+
+    // a random offset for each triangle vertex, to fetch the texture with
+    // bgfx's mul(v, m) is the row vector times the matrix
+    let uv1 = transpose(rot1) * (uv - cen1) + cen1 + hash(grid.vertex1)
+    let uv2 = transpose(rot2) * (uv - cen2) + cen2 + hash(grid.vertex2)
+    let uv3 = transpose(rot3) * (uv - cen3) + cen3 + hash(grid.vertex3)
+
+    // the random offsets break the screen-space derivatives, so each fetch names its gradients
+    let c1 = material.trx_d.sample(uv1, material.s_tex, grad_x = transpose(rot1) * d_st_dx, grad_y = transpose(rot1) * d_st_dy)
+    let c2 = material.trx_d.sample(uv2, material.s_tex, grad_x = transpose(rot2) * d_st_dx, grad_y = transpose(rot2) * d_st_dy)
+    let c3 = material.trx_d.sample(uv3, material.s_tex, grad_x = transpose(rot3) * d_st_dx, grad_y = transpose(rot3) * d_st_dy)
+
+    // luminance as the weight
+    let lw = float3(0.299, 0.587, 0.114)
+    let mut dw = float3(dot(c1.xyz, lw), dot(c2.xyz, lw), dot(c3.xyz, lw))
+
+    // 0.6 is the fall-off constant
+    dw = mix(float3(1.0), dw, 0.6)
+    // 7 is g_exp
+    let mut w = dw * pow(float3(grid.w1, grid.w2, grid.w3), float3(7.0))
+    w /= (w.x + w.y + w.z)
+    if r != 0.5 => w = gain3(w, r)
+
+    // the colors blend linearly by the weights;
+    // histogram-preserving blending would be better, but needs a precomputed histogram texture
+    return {
+        color = w.x * c1 + w.y * c2 + w.z * c3
+        weights = produce_hex_weights(w.xyz, grid.vertex1, grid.vertex2, grid.vertex3)
+    }
+
+fun get_tile_rate(){params} => 0.05 * params.tile_rate
+
+fun fetch_color_and_weight(uv: float2){material, params} -> color_and_weights:
+    let hex = hex2col_tex(uv, params.tile_rot_strength, 0.7)
+    return {
+        color = hex.color.xyz
+        weights = hex.weights
+    }
+
+@pixel fun main(p: varyings){material, params} -> target:
+    // the actual world-space position
+    let surf_pos_in_world = p.world_position.xyz
+
+    let sp = get_tile_rate() * surf_pos_in_world
+
+    let uv0 = float2(sp.x, sp.z)
+
+    if params.use_regular_tiling > 0.0:
+        return { color = material.trx_d.sample(uv0.xy, material.s_tex) }
+    else:
+        let fetched = fetch_color_and_weight(uv0)
+        if params.show_weights > 0.0:
+            return { color = float4(..fetched.weights, 1.0) }
+        else:
+            return { color = float4(..fetched.color, 1.0) }
