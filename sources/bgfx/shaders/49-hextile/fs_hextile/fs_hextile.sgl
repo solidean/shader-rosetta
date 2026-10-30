@@ -61,7 +61,6 @@ fun gain3(x: float3, r: float) -> float3:
     return res.xyz / (res.x + res.y + res.z)
 
 // The original's float2x2(a, b, c, d) has the rows (a, b) and (c, d), and a mat2 is built from its columns.
-// gap: SGL has no mat2; it is written as mat3 is.
 fun load_rot2x2(idx: float2, rot_strength: float) -> mat2:
     let mut angle = abs(idx.x * idx.y) + abs(idx.x + idx.y) + pi
 

@@ -73,7 +73,7 @@ sgl emit vs_cubes.sgl --entry main --target hlsl-dx12   # and hlsl-vulkan, wgsl,
 | `mul(m, v)` | `m * v` |
 | `mul(v, m)` | `transpose(m) * v`: bgfx's row vector times the matrix; `transpose` is a gap today |
 | `mtxFromCols(a, b, c)` | `mat3(a, b, c)`, which takes `float3` columns |
-| `mat2`, `mat4x3`, `m[i]` | no spelling yet: a stand-in, marked `// gap:` |
+| `mat4x3`, `m[i]` | no spelling yet: a stand-in, marked `// gap:` |
 | `vec3_splat(x)`, `vec4_splat(x)` | `float3(x)`, `float4(x)` |
 | `max(v, 0.0)`, `clamp(v, 0.0, 1.0)` on a vector | `max(v, float3(0.0))`: no builtin broadcasts a scalar bound |
 | `cross`, `reflect`, `refract` | take `vec3`, so a `float3` converts with `vec3(..x)` |
