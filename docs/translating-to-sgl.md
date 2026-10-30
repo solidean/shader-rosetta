@@ -77,7 +77,7 @@ sgl emit vs_cubes.sgl --entry main --target hlsl-dx12   # and hlsl-vulkan, wgsl,
 | `vec3_splat(x)`, `vec4_splat(x)` | `float3(x)`, `float4(x)` |
 | `max(v, 0.0)`, `clamp(v, 0.0, 1.0)` on a vector | the same: `min`, `max` and `clamp` take a scalar bound |
 | `cross`, `reflect`, `refract` | take `vec3`: type normals, tangents and light directions as `vec3`, and build a basis with `mat3(t, b, n)` of them |
-| `.rgb`, `.r` | `.xyz`, `.x`: swizzles are `xyzw` alone |
+| `.rgb`, `.r` | the same on a plain vector; a `vec3` or a `pos3` reads `.xyz` |
 | `float(b)` of a `bool` | `select(b, 1.0, 0.0)` |
 | `c ? a : b` | `if c => a else b`, also after a jump: `return if c => a else b` |
 | `discard` | `if c => discard` |
