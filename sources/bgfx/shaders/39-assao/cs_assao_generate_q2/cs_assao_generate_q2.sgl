@@ -529,7 +529,7 @@ fun generate_ssao_shadows_internal(sv_pos: float2, quality_level: int, adaptive_
         let additional_samples_to = min(ssao_max_taps as uint, additional_samples + (ssao_adaptive_tap_base_count as uint))
 
         // additional manual unroll doesn't help unfortunately
-        // gap: SGL has no spelling for HLSL's [loop], the hint that keeps a loop from being unrolled
+        @unroll(false)
         for i in ssao_adaptive_tap_base_count ..< (additional_samples_to as int):
             additional_sample_count_flt -= 1.0
             // slowly blend in the last few samples

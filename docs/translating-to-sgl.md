@@ -44,7 +44,8 @@ sgl emit vs_cubes.sgl --entry main --target hlsl-dx12   # and hlsl-vulkan, wgsl,
 | `$input a_position, a_color0` (vertex) | an `@vertex struct` with those fields, in that order |
 | `$output` / `$input v_*` | a plain `struct varyings` with `@position position: hpos4` first |
 | `gl_Position` | the `@position` member of the returned struct |
-| `gl_FragColor` | the `color` member of `@pixel struct target`; `gl_FragData[i]` is one member per target |
+| `gl_FragColor` | the pixel stage's result, `-> float4`, which is its one target; `gl_FragData[i]` is one `@pixel struct` member per target |
+| a fragment shader that writes images alone | a `@pixel fun` with no result, whose pipeline has no color target |
 | `u_modelViewProj`, `u_viewProj`, `u_model[0]`, … | members of a `binding view:` holding the ones the shader reads |
 | `uniform vec4 u_params[3]` with `#define u_x u_params[0].x` | named members, as the defines name them |
 | a uniform array indexed by a variable, or without defines | an array member, `light_pos_radius: float4[4]`; an element shorter than `vec4` is a gap today |
@@ -71,20 +72,24 @@ sgl emit vs_cubes.sgl --entry main --target hlsl-dx12   # and hlsl-vulkan, wgsl,
 | `gl_GlobalInvocationID`, `gl_LocalInvocationIndex` | `@thread_id id: int3`, `@local_thread_index i: int` |
 | `barrier()` | `workgroup_barrier()` |
 | `mul(m, v)` | `m * v` |
-| `mul(v, m)` | `transpose(m) * v`: bgfx's row vector times the matrix; `transpose` is a gap today |
+| `mul(v, m)` | `transpose(m) * v`: bgfx's row vector times the matrix |
 | `mtxFromCols(a, b, c)` | `mat3(a, b, c)`, which takes `float3` columns |
 | `mat4x3`, `m[i]` | no spelling yet: a stand-in, marked `// gap:` |
 | `vec3_splat(x)`, `vec4_splat(x)` | `float3(x)`, `float4(x)` |
 | `max(v, 0.0)`, `clamp(v, 0.0, 1.0)` on a vector | the same: `min`, `max` and `clamp` take a scalar bound |
 | `cross`, `reflect`, `refract` | take `vec3`: type normals, tangents and light directions as `vec3`, and build a basis with `mat3(t, b, n)` of them |
 | `.rgb`, `.r` | the same on a plain vector; a `vec3` or a `pos3` reads `.xyz` |
-| `float(b)` of a `bool` | `select(b, 1.0, 0.0)` |
+| `float(b)` of a `bool` | `b as float` |
 | `c ? a : b` | `if c => a else b`, also after a jump: `return if c => a else b` |
 | `discard` | `if c => discard` |
 | `out` parameters | a returned struct |
 | `M_PI` | the prelude's `pi`, or the shader's own `const pi`, which hides it |
 | `floatBitsToUint(x)` | `x.bits` |
-| `#define W (A + B)` over constants | `const w = a + b`; a gap today, since a const must be a literal |
+| a `half`'s bits, `asuint16(h)` | `h.bits`, the low 16 bits of a `uint`, and back with `half.from_bits(u)` |
+| `#define W (A + B)` over constants | `const w = a + b`, computed before the program runs; a function may declare its own |
+| `LOOP` / `[loop]` | `@unroll(false)` on the `for` |
+| `for (int i = n - 1; i >= 0; --i)`, `i += 2` | `for i in (0 ..< n).reversed`, `for i in (0 ..< n).by(2)` |
+| `textureGather(t, s, uv, 1)` | `t.gather(uv, s, component = .y)` |
 
 A shader with no copyright line names the one in bgfx's LICENSE, and says so.
 bgfx's sampler state is set by the host, and the host code is not in the corpus: a static `filter = .linear` sampler stands in, unless the data says otherwise.
@@ -100,6 +105,9 @@ A function names the bindings it reads in `{…}` after its parameters, and so d
 - **A multi-line call closes on its own line.** One element per line, and the `)` or `]` at the parent's indent.
 - **A long expression breaks before an operator.** A more indented line continues the statement, and inside parentheses a line starting with a spaced infix operator continues the element above; never keep a 200-character line.
 - **`as` is looser than every arithmetic operator.** `x as float / 3.0` reads as `x as (float / 3.0)`, so parenthesize: `(x as float) / 3.0`.
+  The error is `as-precedence`, and it names the parenthesized form.
+- **`type`, `out`, `loop` and `test` are keywords**, and a member, parameter or local of that name is `keyword-as-name`: rename it.
+- **A dot call may change its receiver**: `ui.print(…)` binds a `mut` first parameter to `ui` with no `mut` written, where `ui` is a place.
 - **A `mut` parameter spells `mut` on its type**: `sum: mut float`, called as `f(mut sum)`; bgfx's `out` parameters are better returned as a struct.
 - **An `if` value may carry its `else` on a more indented next line**, which keeps a long one readable.
 - **A texture array's layer is an `int`**, where bgfx passes a float the target rounds: write `round(l) as int`, since `as int` truncates.

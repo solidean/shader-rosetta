@@ -8,7 +8,6 @@ struct varyings:
     @position position: hpos4
     texcoord0: float2
 
-// gap: a pixel stage that writes only an image and no target has no spelling, since CHK-91 asks every @pixel fun to return a @pixel struct
 @pixel fun main(p: varyings){gbuffer}:
     let coord = p.position.xy as int2
     gbuffer.light[coord] = float4(0.0, 0.0, 0.0, 0.0) as texel[.rgba8_unorm]

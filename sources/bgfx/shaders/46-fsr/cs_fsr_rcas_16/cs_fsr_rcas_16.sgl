@@ -18,14 +18,8 @@ binding fsr:
 // ffx_a.h
 fun rcp(x: half) => 1.0 / x
 
-// gap: a half has no `.bits` and no `half.from_bits`, and no bit operator takes a ushort, so its bits travel in a uint
-fun half_bits(a: half) => pack_half2x16(float2(a as float, 0.0))
-
-// gap: the stand-in's way back, from the low 16 bits of a uint
-fun half_from_bits(u: uint) => unpack_half2x16(u).x as half
-
 fun prx_med_rcp(a: half) -> half:
-    let b = half_from_bits(0x778du - half_bits(a))
+    let b = half.from_bits(0x778du - a.bits)
     return b * (-b * a + 2.0)
 
 fun min3(x: half, y: half, z: half) => min(x, min(y, z))

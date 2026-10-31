@@ -57,7 +57,6 @@ fun clip_to_world(inv_view_proj: mat4, clip_pos: float3) -> float3:
 
 fun to_gamma(rgb: float3) => pow(abs(rgb), float3(1.0 / 2.2))
 
-// gap: a pixel stage that writes only an image and no target has no spelling, since CHK-91 asks every @pixel fun to return a @pixel struct
 @pixel fun main(p: varyings){view, gbuffer, lights}:
     let normal = decode_normal_uint(gbuffer.normal.sample(p.texcoord0, gbuffer.s_tex).xyz)
     let device_depth = gbuffer.depth.sample(p.texcoord0, gbuffer.s_depth)

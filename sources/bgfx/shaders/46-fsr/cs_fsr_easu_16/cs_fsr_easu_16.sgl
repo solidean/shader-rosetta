@@ -24,15 +24,9 @@ fun rcp(x: half) => 1.0 / x
 
 fun rcp(x: half2) => half2(1.0) / x
 
-// gap: a half has no `.bits` and no `half.from_bits`, and no bit operator takes a ushort, so its bits travel in a uint
-fun half_bits(a: half) => pack_half2x16(float2(a as float, 0.0))
+fun prx_lo_rcp(a: half) => half.from_bits(0x7784u - a.bits)
 
-// gap: the stand-in's way back, from the low 16 bits of a uint
-fun half_from_bits(u: uint) => unpack_half2x16(u).x as half
-
-fun prx_lo_rcp(a: half) => half_from_bits(0x7784u - half_bits(a))
-
-fun prx_lo_rsq(a: half) => half_from_bits(0x59a3u - (half_bits(a) >> 1u))
+fun prx_lo_rsq(a: half) => half.from_bits(0x59a3u - (a.bits >> 1u))
 
 fun bfe(src: uint, off: uint, bits: uint) -> uint:
     let mask = (1u << bits) - 1u
