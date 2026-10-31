@@ -28,7 +28,11 @@ ROOT = Path(__file__).resolve().parent.parent
 TARGETS = ("hlsl-dx12", "hlsl-vulkan", "wgsl", "msl")
 
 # `vs_cubes.sgl:12:5: error: unknown-name: foo`; a note or a source line between them is skipped
-DIAGNOSTIC = re.compile(r"^(?P<file>.+?):(?P<line>\d+):(?P<column>\d+): error: (?P<kind>[a-z0-9-]+)(?:: (?P<detail>.*))?$")
+# A diagnostic of a whole entry point, such as `target-lacks-feature`, names the file alone.
+DIAGNOSTIC = re.compile(
+    r"^(?P<file>.+?):(?:(?P<line>\d+):(?P<column>\d+):)? error: (?P<kind>[a-z0-9-]+)(?:: (?P<detail>.*))?$")
+# What a target lacks by design: the shader requires a device feature that target has on no device.
+UNPORTABLE = "target-lacks-feature"
 
 
 def _emit(sgl: Path, source: Path, entry: str, target: str) -> list[dict]:
@@ -62,12 +66,21 @@ def main() -> None:
         results = [r for r in pool.map(lambda d: _check(args.sgl.resolve(), d), shader_dirs) if r]
 
     clean = [r for r in results if not any(r["targets"].values())]
+
+    # a target that lacks a feature the shader requires is no failure, so such a shader counts where the feature exists
+    def is_unportable(ds: list[dict]) -> bool:
+        return bool(ds) and all(d["kind"] == UNPORTABLE for d in ds)
+
+    gated = [r for r in results if any(r["targets"].values())
+             and all(not ds or is_unportable(ds) for ds in r["targets"].values())]
     # A gap counts once per shader however many targets and lines report it: the question is how many shaders it blocks.
     # `unsupported-yet` alone says little, so a gap is its kind and its detail.
     blocking: dict[str, set[str]] = collections.defaultdict(set)
     for r in results:
         for diagnostics in r["targets"].values():
             for d in diagnostics:
+                if d["kind"] == UNPORTABLE:
+                    continue
                 blocking[f"`{d['kind']}`: {(d.get('detail') or '').strip()[:120]}"].add(r["shader"])
     # A shader the spec has no spelling for compiles through a stand-in, which a `// gap:` comment marks.
     workarounds: dict[str, set[str]] = collections.defaultdict(set)
@@ -82,7 +95,11 @@ def main() -> None:
     print("# SGL coverage\n")
     print(f"{len(shader_dirs)} shaders in the corpus, {len(results)} translated to SGL "
           f"({', '.join(f'{n} {s}' for s, n in sorted(by_stage.items()))}).")
-    print(f"{len(clean)} of them compile on every target ({', '.join(TARGETS)}).\n")
+    print(f"{len(clean)} of them compile on every target ({', '.join(TARGETS)}).")
+    if gated:
+        names = ", ".join(f"`{r['shader'].split('/')[-1]}`" for r in gated)
+        print(f"{len(gated)} more compile on every target that has the device features they require: {names}.")
+    print()
     if blocking:
         print("## What blocks the rest\n")
         print("| gap | shaders |")
@@ -100,7 +117,7 @@ def main() -> None:
         print()
         print("## Failing shaders\n")
         for r in results:
-            failing = {t: ds for t, ds in r["targets"].items() if ds}
+            failing = {t: ds for t, ds in r["targets"].items() if ds and not is_unportable(ds)}
             if not failing:
                 continue
             kinds = sorted({d["kind"] for ds in failing.values() for d in ds})

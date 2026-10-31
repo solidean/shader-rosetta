@@ -56,6 +56,7 @@ sgl emit vs_cubes.sgl --entry main --target hlsl-dx12   # and hlsl-vulkan, wgsl,
 | `gl_FragData[i]` | one `@pixel struct` member per target, named for what it holds |
 | `gl_FragDepth` | an `@depth depth: float` member of the `@pixel struct` |
 | `gl_FragCoord` | the pixel input's `@position` member |
+| `gl_Layer`, `SV_RenderTargetArrayIndex` | a `@layer layer: uint` member, under `require vertex_layer_output`; WebGPU has none, so its WGSL is `target-lacks-feature` |
 | `gl_FrontFacing`, `gl_VertexID`, `gl_InstanceID` | `@is_front_facing`, `@vertex_index`, `@instance_index`, all `int` but the first |
 | `SAMPLER2D(s_tex, 0)`, `texture2D(s_tex, uv)` | `tex: texture_2d[float4]` and a sampler in the binding; `tex.sample(uv, s)` |
 | `BUFFER_RO(b, vec4, 0)` / `BUFFER_WO` / `BUFFER_RW` | `b: buffer[float4]` / `b: mut buffer[float4]` in a binding |
