@@ -9,9 +9,6 @@ struct varyings:
 @pixel struct target:
     color: float4
 
-// GLSL's mod, which floors where SGL's % truncates
-fun mod(a: float, b: float) => a - b * floor(a / b)
-
 @pixel fun main(p: varyings) -> target:
     if 0.125 < mod(p.stipple, 0.25) => discard
 

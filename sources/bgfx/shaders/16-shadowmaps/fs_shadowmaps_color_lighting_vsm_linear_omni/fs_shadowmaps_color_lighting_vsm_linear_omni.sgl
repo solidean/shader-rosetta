@@ -62,9 +62,6 @@ struct shading:
     diff: float3
     spec: float3
 
-// gap: SGL's prelude has no radians, which HLSL, GLSL and WGSL each have
-fun radians(degrees: float) => degrees * (pi / 180.0)
-
 fun to_gamma(rgb: float3) => pow(abs(rgb), float3(1.0 / 2.2))
 
 fun unpack_half_float(rg: float2) -> float:
